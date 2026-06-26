@@ -1,0 +1,6 @@
+{
+  "name": "Vendor Remittance & Payment Advice Dispatcher",
+  "description": "An offline-first accounts payable workflow helper to manage vendors, ingest payment details, generate A4 PDF payment advice sheets, and dispatch branded notifications with automated retries and delivery audits.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
