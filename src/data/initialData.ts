@@ -135,4 +135,13 @@ export const DEFAULT_ENGINE_CONFIG: DeliveryEngineConfig = {
   senderEmail: 'joseon359@gmail.com',
   autoRetryLimit: 3,
   retryDelaySeconds: 5, // 5 seconds for visual feedback, ideal for demo
+  smtp: {
+    host: '',
+    port: 587,
+    secure: false,
+    user: '',
+    pass: '',
+    senderName: 'RemitFlow Advice Dispatcher',
+    isEnabled: false,
+  },
 };

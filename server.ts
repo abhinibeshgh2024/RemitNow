@@ -7,6 +7,7 @@ import express from 'express';
 import path from 'path';
 import dotenv from 'dotenv';
 import { createServer as createViteServer } from 'vite';
+import nodemailer from 'nodemailer';
 
 // Load environment variables
 dotenv.config();
@@ -16,9 +17,9 @@ async function startServer() {
   const PORT = 3000;
 
   // Increase payload limit to handle base64 PDF attachments
-  app.use(express.json({ limit: '15mb' }));
+  app.use(express.json({ limit: '20mb' }));
 
-  // API 1: Fetch Server-side secrets configuration status (all set to false since API keys are removed)
+  // API 1: Fetch Server-side secrets configuration status
   app.get('/api/config-status', (req, res) => {
     res.json({
       brevo: false,
@@ -29,7 +30,7 @@ async function startServer() {
 
   // API 2: Proxy transactional email dispatches with PDF attachments
   app.post('/api/send-email', async (req, res) => {
-    const { to, subject, body, engine, simulateFail } = req.body;
+    const { to, subject, body, engine, pdfBase64, invoiceNumber, smtpConfig, simulateFail } = req.body;
 
     // Safety checks
     if (!to || !subject || !body || !engine) {
@@ -39,7 +40,7 @@ async function startServer() {
       });
     }
 
-    // Direct Send Sandbox mode (No API keys required)
+    // Direct Send Sandbox mode
     if (simulateFail) {
       return res.status(503).json({
         success: false,
@@ -47,12 +48,70 @@ async function startServer() {
       });
     }
 
-    // Simulate standard network delay (800ms) for realistic visual feedback
+    // Check if the user supplied an active real SMTP configuration
+    if (smtpConfig && smtpConfig.host && smtpConfig.user && smtpConfig.pass) {
+      try {
+        const port = parseInt(smtpConfig.port) || 587;
+        const secure = smtpConfig.secure === true || port === 465;
+
+        const transporter = nodemailer.createTransport({
+          host: smtpConfig.host,
+          port: port,
+          secure: secure,
+          auth: {
+            user: smtpConfig.user,
+            pass: smtpConfig.pass,
+          },
+          tls: {
+            // Do not fail on invalid certs
+            rejectUnauthorized: false
+          }
+        });
+
+        // Verify connection configuration
+        await transporter.verify();
+
+        const mailOptions: any = {
+          from: `"${smtpConfig.senderName || 'RemitFlow Dispatcher'}" <${smtpConfig.user}>`,
+          to: to,
+          subject: subject,
+          text: body,
+          html: body.replace(/\n/g, '<br>'),
+        };
+
+        if (pdfBase64) {
+          mailOptions.attachments = [
+            {
+              filename: `${invoiceNumber || 'Remittance_Advice'}.pdf`,
+              content: pdfBase64,
+              encoding: 'base64',
+              contentType: 'application/pdf',
+            }
+          ];
+        }
+
+        const info = await transporter.sendMail(mailOptions);
+        
+        return res.json({
+          success: true,
+          message: `[Real Mail Sent] Remittance advice successfully delivered to ${to} (MessageID: ${info.messageId}).`,
+        });
+
+      } catch (err: any) {
+        console.error('[SMTP Transport Error]', err);
+        return res.status(502).json({
+          success: false,
+          error: `SMTP connection failed: ${err.message || err}. Check your host/port or application password settings.`,
+        });
+      }
+    }
+
+    // Standard simulation mode (with helpful fallback explanation)
     await new Promise((resolve) => setTimeout(resolve, 800));
 
     return res.json({
       success: true,
-      message: `[Simulated Direct Send Success] Remittance advice successfully delivered to ${to} via sandbox container.`,
+      message: `[Sandbox Simulated Success] Remittance advice prepared and simulated. To deliver real automated emails, activate the SMTP Outbox in Settings!`,
     });
   });
 

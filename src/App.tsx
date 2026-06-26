@@ -276,6 +276,7 @@ export default function App() {
         engine: configRef.current.activeEngine,
         pdfBase64: pdfBase64,
         invoiceNumber: payment.invoiceNumber,
+        smtpConfig: configRef.current.smtp?.isEnabled ? configRef.current.smtp : undefined,
         simulateFail: configRef.current.activeEngine === 'Sandbox' && simulateSandboxFailRef.current,
       };
 

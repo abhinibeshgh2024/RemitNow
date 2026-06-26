@@ -30,11 +30,22 @@ export interface Payment {
 
 export type DeliveryEngineType = 'Sandbox' | 'Native Share';
 
+export interface SmtpConfig {
+  host: string;
+  port: number;
+  secure: boolean;
+  user: string;
+  pass: string;
+  senderName: string;
+  isEnabled: boolean;
+}
+
 export interface DeliveryEngineConfig {
   activeEngine: DeliveryEngineType;
   senderEmail: string; // joseon359@gmail.com
   autoRetryLimit: number;
   retryDelaySeconds: number; // For demo/offline visual countdowns
+  smtp?: SmtpConfig;
 }
 
 export interface EmailTemplate {
