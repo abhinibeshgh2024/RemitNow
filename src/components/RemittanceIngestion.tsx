@@ -26,6 +26,7 @@ import {
   FileSpreadsheet,
   Check,
   AlertCircle,
+  User,
 } from 'lucide-react';
 import { Payment, Vendor, PaymentStatus } from '../types';
 import { generateRemittancePDF } from '../utils/pdfGenerator';
@@ -140,24 +141,67 @@ export default function RemittanceIngestion({
   };
 
   // CSV Handlers
-  const downloadSampleCSV = () => {
-    const sampleVendorCode = vendors.length > 0 ? vendors[0].code : 'VND-001';
+  const downloadRemittancesStandard = () => {
     const csvContent = [
       'Invoice Number,Vendor Code,Cleared Amount,UTR Number,Payment Date',
-      `INV-2026-001,${sampleVendorCode},5400.00,UTR-COMM-9901,2026-06-25`,
-      `INV-2026-002,${sampleVendorCode},12450.50,UTR-ACME-8812,2026-06-26`,
-      'INV-2026-003,VND-INVALID,850.00,UTR-MISS-0000,2026-06-27'
+      'INV-2026-001,VND-INFOSTAR,5400.00,UTR-COMM-9901,2026-06-25',
+      'INV-2026-002,VND-RUDRA,12450.50,UTR-ACME-8812,2026-06-26',
+      'INV-2026-003,VND-INFOSTAR,850.00,UTR-MISS-0000,2026-06-27'
     ].join('\n');
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', url);
-    link.setAttribute('download', 'remittance_import_sample.csv');
+    link.setAttribute('download', '1_standard_remittances_template.csv');
     link.style.visibility = 'hidden';
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  const downloadVendorsMaster = () => {
+    const csvContent = [
+      'Vendor Code,Company Name,Email,Contact Person,Phone,Currency',
+      'VND-INFOSTAR,Infostar Media Group,infostarmedia133@gmail.com,Finance Director,+1 (555) 019-2834,USD',
+      'VND-RUDRA,Rudra Associates,rudrapratapsingh072006@gmail.com,Rudra Pratapsingh,+91 98765 43210,INR',
+      'VND-GLOBE,Globe Contractors Ltd,payments@globe.com,Jane Doe,+44 20 7946 0958,GBP'
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', '2_vendor_master_template.csv');
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const downloadCorporateSettlements = () => {
+    const csvContent = [
+      'Invoice Number,Vendor Code,Cleared Amount,UTR Number,Payment Date',
+      'INV-BULK-001,VND-INFOSTAR,25000.00,UTR-B100-9281,2026-06-25',
+      'INV-BULK-002,VND-RUDRA,150000.00,UTR-B100-9282,2026-06-26',
+      'INV-BULK-003,VND-INFOSTAR,1250.75,UTR-B100-9283,2026-06-27'
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', '3_corporate_settlements_comprehensive.csv');
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const downloadAllThreeTemplates = () => {
+    downloadRemittancesStandard();
+    setTimeout(() => downloadVendorsMaster(), 200);
+    setTimeout(() => downloadCorporateSettlements(), 400);
   };
 
   const handleCsvFileSelected = (file: File) => {
@@ -969,28 +1013,64 @@ export default function RemittanceIngestion({
                       </p>
                     </div>
                     
-                    <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
-                      <label className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-full cursor-pointer shadow-xs hover:shadow transition-all">
-                        Browse Files
-                        <input 
-                          type="file" 
-                          accept=".csv,text/csv,application/csv,application/vnd.ms-excel,text/plain" 
-                          className="hidden" 
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (file) handleCsvFileSelected(file);
-                          }}
-                        />
-                      </label>
-                      <button 
-                        type="button"
-                        onClick={downloadSampleCSV}
-                        className="flex items-center gap-1.5 px-4 py-2.5 bg-white hover:bg-slate-100 text-slate-700 font-semibold text-xs rounded-full border border-slate-250 transition-colors cursor-pointer"
-                        id="btn-download-csv-sample"
-                      >
-                        <Download className="h-3.5 w-3.5 text-slate-500" />
-                        <span>Download Sample Template</span>
-                      </button>
+                    <div className="flex flex-col items-center justify-center gap-4 pt-2 w-full">
+                      <div className="flex flex-wrap items-center justify-center gap-3">
+                        <label className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-full cursor-pointer shadow-xs hover:shadow transition-all">
+                          Browse Files
+                          <input 
+                            type="file" 
+                            accept=".csv,text/csv,application/csv,application/vnd.ms-excel,text/plain" 
+                            className="hidden" 
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) handleCsvFileSelected(file);
+                              e.target.value = ''; // clears the input so selecting the same file again triggers onChange with no barriers!
+                            }}
+                          />
+                        </label>
+                        <button 
+                          type="button"
+                          onClick={downloadAllThreeTemplates}
+                          className="flex items-center gap-1.5 px-4 py-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs rounded-full border border-indigo-100 transition-colors cursor-pointer"
+                          id="btn-download-all-three"
+                        >
+                          <Download className="h-3.5 w-3.5" />
+                          <span>Download All 3 Templates</span>
+                        </button>
+                      </div>
+
+                      <div className="w-full max-w-lg mt-4 border-t border-slate-150 pt-4">
+                        <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2 text-left sm:text-center">Select individual sample templates to download:</p>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                          <button
+                            type="button"
+                            onClick={downloadRemittancesStandard}
+                            className="flex flex-col items-center justify-center p-2.5 bg-white hover:bg-slate-50 border border-slate-200 rounded-2xl transition-all cursor-pointer text-left sm:text-center"
+                          >
+                            <FileSpreadsheet className="h-5 w-5 text-indigo-500 mb-1" />
+                            <span className="text-[11px] font-bold text-slate-800">1. Standard Remittances</span>
+                            <span className="text-[9px] text-slate-400">Basic record format</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={downloadVendorsMaster}
+                            className="flex flex-col items-center justify-center p-2.5 bg-white hover:bg-slate-50 border border-slate-200 rounded-2xl transition-all cursor-pointer text-left sm:text-center"
+                          >
+                            <User className="h-5 w-5 text-indigo-500 mb-1" />
+                            <span className="text-[11px] font-bold text-slate-800">2. Vendor Directory</span>
+                            <span className="text-[9px] text-slate-400">With specified emails</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={downloadCorporateSettlements}
+                            className="flex flex-col items-center justify-center p-2.5 bg-white hover:bg-slate-50 border border-slate-200 rounded-2xl transition-all cursor-pointer text-left sm:text-center"
+                          >
+                            <Layers className="h-5 w-5 text-indigo-500 mb-1" />
+                            <span className="text-[11px] font-bold text-slate-800">3. Corporate Batch</span>
+                            <span className="text-[9px] text-slate-400">Comprehensive data</span>
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1008,7 +1088,7 @@ export default function RemittanceIngestion({
                   </div>
                   <div className="flex items-center gap-2 w-full sm:w-auto">
                     <button 
-                      onClick={downloadSampleCSV}
+                      onClick={downloadRemittancesStandard}
                       className="px-3.5 py-1.5 bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 rounded-full font-semibold text-[11px] transition-colors cursor-pointer"
                       id="btn-download-sample-csv-inline"
                     >
