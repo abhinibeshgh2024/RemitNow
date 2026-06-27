@@ -298,12 +298,19 @@ export default function App() {
         body: JSON.stringify(bodyPayload),
       });
 
-      if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.error || `HTTP Gateway Error: ${response.status}`);
+      let resData: any;
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        resData = await response.json();
+      } else {
+        const text = await response.text();
+        const snippet = text.length > 250 ? text.substring(0, 250) + '...' : text;
+        throw new Error(`The API gateway returned an unexpected response format (${response.status}): ${snippet}`);
       }
 
-      const resData = await response.json();
+      if (!response.ok) {
+        throw new Error(resData.error || `HTTP Gateway Error: ${response.status}`);
+      }
 
       // Successful Dispatch Log
       const logId = `log-${Date.now()}`;

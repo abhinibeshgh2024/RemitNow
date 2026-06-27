@@ -64,7 +64,16 @@ export default function EngineConfig({
         body: JSON.stringify(payload),
       });
 
-      const data = await res.json();
+      let data: any;
+      const contentType = res.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        data = await res.json();
+      } else {
+        const text = await res.text();
+        const snippet = text.length > 250 ? text.substring(0, 250) + '...' : text;
+        throw new Error(`The server returned an unexpected response format (${res.status}): ${snippet}`);
+      }
+
       if (res.ok && data.success) {
         setTestStatus('success');
         setTestMessage(data.message || 'SMTP Handshake verified successfully!');
