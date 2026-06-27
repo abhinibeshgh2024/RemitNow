@@ -22,10 +22,34 @@ import {
   Play,
   Layers,
   Mail,
+  Upload,
+  FileSpreadsheet,
+  Check,
+  AlertCircle,
 } from 'lucide-react';
 import { Payment, Vendor, PaymentStatus } from '../types';
 import { generateRemittancePDF } from '../utils/pdfGenerator';
 import ConfirmationModal from './Modal';
+
+function parseCSVLine(line: string): string[] {
+  const result: string[] = [];
+  let current = '';
+  let inQuotes = false;
+  
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    if (char === '"' || char === "'") {
+      inQuotes = !inQuotes;
+    } else if (char === ',' && !inQuotes) {
+      result.push(current.trim());
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+  result.push(current.trim());
+  return result;
+}
 
 interface RemittanceIngestionProps {
   payments: Payment[];
@@ -68,6 +92,13 @@ export default function RemittanceIngestion({
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
   const [formError, setFormError] = useState('');
 
+  // CSV Import state
+  const [isCsvModalOpen, setIsCsvModalOpen] = useState(false);
+  const [csvFile, setCsvFile] = useState<File | null>(null);
+  const [csvError, setCsvError] = useState<string>('');
+  const [parsedRows, setParsedRows] = useState<any[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
+
   // PDF Preview Drawer state
   const [previewPdfUrl, setPreviewPdfUrl] = useState<string | null>(null);
   const [previewInvoice, setPreviewInvoice] = useState<string>('');
@@ -106,6 +137,152 @@ export default function RemittanceIngestion({
     } else if (type === 'batch' && pendingIds) {
       await onDispatchBatch(pendingIds, selectedSenderEmail);
     }
+  };
+
+  // CSV Handlers
+  const downloadSampleCSV = () => {
+    const sampleVendorCode = vendors.length > 0 ? vendors[0].code : 'VND-001';
+    const csvContent = [
+      'Invoice Number,Vendor Code,Cleared Amount,UTR Number,Payment Date',
+      `INV-2026-001,${sampleVendorCode},5400.00,UTR-COMM-9901,2026-06-25`,
+      `INV-2026-002,${sampleVendorCode},12450.50,UTR-ACME-8812,2026-06-26`,
+      'INV-2026-003,VND-INVALID,850.00,UTR-MISS-0000,2026-06-27'
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', 'remittance_import_sample.csv');
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleCsvFileSelected = (file: File) => {
+    setCsvFile(file);
+    setCsvError('');
+    setParsedRows([]);
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const text = event.target?.result as string;
+        if (!text) {
+          setCsvError('The CSV file is empty.');
+          return;
+        }
+
+        const lines = text.split(/\r?\n/).filter(line => line.trim() !== '');
+        if (lines.length < 2) {
+          setCsvError('The CSV file must contain a header row and at least one data row.');
+          return;
+        }
+
+        // Parse headers
+        const headers = parseCSVLine(lines[0]).map(h => h.toLowerCase().replace(/[\s_-]+/g, ''));
+        
+        // Find header indices dynamically to support flexible column order
+        const invoiceIdx = headers.findIndex(h => h.includes('invoice'));
+        const vendorIdx = headers.findIndex(h => h.includes('vendor') || h.includes('payee') || h === 'code');
+        const amountIdx = headers.findIndex(h => h.includes('amount') || h.includes('cleared') || h.includes('total') || h === 'val');
+        const utrIdx = headers.findIndex(h => h.includes('utr') || h.includes('ref') || h.includes('reference'));
+        const dateIdx = headers.findIndex(h => h.includes('date'));
+
+        if (invoiceIdx === -1 || vendorIdx === -1 || amountIdx === -1 || utrIdx === -1) {
+          setCsvError('Could not find required columns in header. Please ensure your CSV has "Invoice Number", "Vendor Code", "Cleared Amount", and "UTR Number" headers.');
+          return;
+        }
+
+        const rows: any[] = [];
+        for (let i = 1; i < lines.length; i++) {
+          const values = parseCSVLine(lines[i]);
+          if (values.length < 4) continue; // Skip malformed rows
+
+          const invoiceNumber = (values[invoiceIdx] || '').trim().toUpperCase();
+          const vendorCode = (values[vendorIdx] || '').trim().toUpperCase();
+          const amountRaw = (values[amountIdx] || '').trim().replace(/[$,]/g, '');
+          const utrNumber = (values[utrIdx] || '').trim().toUpperCase();
+          
+          let paymentDate = dateIdx !== -1 && values[dateIdx] ? values[dateIdx].trim() : '';
+          if (!paymentDate) {
+            paymentDate = new Date().toISOString().split('T')[0];
+          }
+
+          const amountVal = parseFloat(amountRaw);
+          const hasVendor = vendorMap.has(vendorCode);
+          const vendorObj = vendorMap.get(vendorCode);
+          const vendorName = hasVendor ? vendorObj?.name : '';
+          
+          const alreadyExists = payments.some(p => p.invoiceNumber === invoiceNumber);
+
+          const errors: string[] = [];
+          if (!invoiceNumber) errors.push('Missing Invoice Reference');
+          if (!vendorCode) {
+            errors.push('Missing Vendor Code');
+          } else if (!hasVendor) {
+            errors.push(`Vendor Code "${vendorCode}" is not registered`);
+          }
+          if (isNaN(amountVal) || amountVal <= 0) {
+            errors.push('Amount must be positive');
+          }
+          if (!utrNumber) errors.push('Missing UTR Number');
+          if (alreadyExists) {
+            errors.push(`Invoice "${invoiceNumber}" already registered`);
+          }
+
+          rows.push({
+            invoiceNumber,
+            vendorCode,
+            vendorName,
+            amount: isNaN(amountVal) ? 0 : amountVal,
+            utrNumber,
+            paymentDate,
+            errors,
+            isValid: errors.length === 0,
+          });
+        }
+
+        setParsedRows(rows);
+      } catch (err: any) {
+        setCsvError(`Failed to parse file: ${err.message || 'Unknown error'}`);
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const handleImportParsedRows = () => {
+    const validRows = parsedRows.filter(r => r.isValid);
+    if (validRows.length === 0) {
+      alert('No valid records found to import.');
+      return;
+    }
+
+    let successCount = 0;
+    validRows.forEach((row, idx) => {
+      const newPayment: Payment = {
+        id: `pay-${Date.now()}-${idx}-${Math.floor(Math.random() * 1000)}`,
+        invoiceNumber: row.invoiceNumber,
+        vendorCode: row.vendorCode,
+        amount: row.amount,
+        utrNumber: row.utrNumber,
+        paymentDate: row.paymentDate,
+        status: 'Unprocessed',
+        retryCount: 0,
+        maxRetries: 3,
+      };
+
+      const result = onAddPayment(newPayment);
+      if (typeof result !== 'string') {
+        successCount++;
+      }
+    });
+
+    setIsCsvModalOpen(false);
+    setCsvFile(null);
+    setParsedRows([]);
+    setCsvError('');
   };
 
   // Destructive confirmations
@@ -259,6 +436,19 @@ export default function RemittanceIngestion({
             id="btn-clear-all-transactions"
           >
             Clear Ingestions
+          </button>
+          <button
+            onClick={() => {
+              setCsvFile(null);
+              setParsedRows([]);
+              setCsvError('');
+              setIsCsvModalOpen(true);
+            }}
+            className="flex items-center gap-1.5 px-4 py-2.5 bg-white hover:bg-slate-50 text-slate-700 rounded-full border border-slate-200 font-semibold text-xs transition-colors cursor-pointer"
+            id="btn-import-csv-trigger"
+          >
+            <Upload className="h-4 w-4 text-slate-500" />
+            <span>Import CSV</span>
           </button>
           <button
             onClick={() => setIsFormOpen(true)}
@@ -713,6 +903,235 @@ export default function RemittanceIngestion({
             <div className="p-6 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-3">
               <button type="button" onClick={() => setIsFormOpen(false)} className="px-5 py-2.5 rounded-full text-sm font-medium bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer" id="btn-cancel-payment-form">Cancel</button>
               <button type="button" onClick={handleSubmit} className="px-5 py-2.5 rounded-full text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white transition-all shadow-sm cursor-pointer" id="btn-save-payment-form">Ingest Transaction</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CSV Batch Ingestion Drawer */}
+      {isCsvModalOpen && (
+        <div className="fixed inset-0 z-50 flex justify-end">
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-xs transition-opacity" onClick={() => setIsCsvModalOpen(false)} />
+          <div className="relative w-full max-w-4xl bg-white h-full shadow-2xl flex flex-col justify-between border-l border-slate-200 z-10 animate-in slide-in-from-right duration-300" id="csv-ingestion-drawer">
+            {/* Header */}
+            <div className="p-6 border-b border-slate-150 flex items-center justify-between bg-slate-50">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                  <FileSpreadsheet className="h-5 w-5 text-indigo-600" />
+                  <span>CSV Remittance Batch Ingestor</span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">Bulk-import corporate settlement records securely into the local workspace memory.</p>
+              </div>
+              <button 
+                onClick={() => setIsCsvModalOpen(false)} 
+                className="text-slate-400 hover:text-slate-600 hover:bg-slate-200/50 p-2 rounded-full transition-colors" 
+                id="btn-close-csv-ingestion"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+              {/* File upload or active preview area */}
+              {!csvFile ? (
+                <div 
+                  className={`border-2 border-dashed rounded-3xl p-10 text-center transition-all ${
+                    isDragging 
+                      ? 'border-indigo-500 bg-indigo-50/40' 
+                      : 'border-slate-200 bg-slate-50/50 hover:bg-slate-50'
+                  }`}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setIsDragging(true);
+                  }}
+                  onDragLeave={() => setIsDragging(false)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setIsDragging(false);
+                    const file = e.dataTransfer.files?.[0];
+                    if (file && file.name.endsWith('.csv')) {
+                      handleCsvFileSelected(file);
+                    } else {
+                      setCsvError('Please drop a valid .csv file.');
+                    }
+                  }}
+                  id="csv-drag-drop-zone"
+                >
+                  <div className="max-w-md mx-auto flex flex-col items-center justify-center space-y-4">
+                    <div className="h-12 w-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center">
+                      <Upload className="h-6 w-6" />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-slate-800 text-sm">Drag and drop your spreadsheet here</h4>
+                      <p className="text-xs text-slate-400 leading-relaxed mt-1">
+                        Select a comma-separated `.csv` containing your pending transactions.
+                      </p>
+                    </div>
+                    
+                    <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+                      <label className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-full cursor-pointer shadow-xs hover:shadow transition-all">
+                        Browse Files
+                        <input 
+                          type="file" 
+                          accept=".csv" 
+                          className="hidden" 
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) handleCsvFileSelected(file);
+                          }}
+                        />
+                      </label>
+                      <button 
+                        type="button"
+                        onClick={downloadSampleCSV}
+                        className="flex items-center gap-1.5 px-4 py-2.5 bg-white hover:bg-slate-100 text-slate-700 font-semibold text-xs rounded-full border border-slate-250 transition-colors cursor-pointer"
+                        id="btn-download-csv-sample"
+                      >
+                        <Download className="h-3.5 w-3.5 text-slate-500" />
+                        <span>Download Sample Template</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                /* CSV Loaded Info Header */
+                <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200/60 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center font-bold">
+                      <FileSpreadsheet className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h5 className="font-bold text-slate-800 text-sm">{csvFile.name}</h5>
+                      <p className="text-[11px] text-slate-400 font-mono">{(csvFile.size / 1024).toFixed(1)} KB • {parsedRows.length} total rows parsed</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 w-full sm:w-auto">
+                    <button 
+                      onClick={downloadSampleCSV}
+                      className="px-3.5 py-1.5 bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 rounded-full font-semibold text-[11px] transition-colors cursor-pointer"
+                      id="btn-download-sample-csv-inline"
+                    >
+                      Sample Template
+                    </button>
+                    <button 
+                      onClick={() => {
+                        setCsvFile(null);
+                        setParsedRows([]);
+                        setCsvError('');
+                      }}
+                      className="px-3.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-100 rounded-full font-semibold text-[11px] transition-colors cursor-pointer"
+                      id="btn-remove-csv-file"
+                    >
+                      Choose Different File
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {csvError && (
+                <div className="p-4 bg-rose-50 border border-rose-100 rounded-2xl text-xs text-rose-600 leading-normal flex items-start gap-2.5" id="csv-error-banner">
+                  <AlertCircle className="h-4 w-4 shrink-0 text-rose-500 mt-0.5" />
+                  <span>{csvError}</span>
+                </div>
+              )}
+
+              {/* Data Table Preview */}
+              {parsedRows.length > 0 && (
+                <div className="space-y-3" id="csv-preview-table-container">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest font-mono">Parsed Records Preview</h4>
+                    <div className="flex items-center gap-3 text-xs font-medium">
+                      <span className="flex items-center gap-1.5 text-emerald-600 bg-emerald-50 border border-emerald-100 px-2.5 py-0.5 rounded-full text-[10.5px]">
+                        <Check className="h-3.5 w-3.5" />
+                        <strong>{parsedRows.filter(r => r.isValid).length}</strong> Valid & Ready
+                      </span>
+                      {parsedRows.filter(r => !r.isValid).length > 0 && (
+                        <span className="flex items-center gap-1.5 text-rose-600 bg-rose-50 border border-rose-100 px-2.5 py-0.5 rounded-full text-[10.5px]">
+                          <AlertCircle className="h-3.5 w-3.5" />
+                          <strong>{parsedRows.filter(r => !r.isValid).length}</strong> Skipped / Issues
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="border border-slate-200 rounded-2xl overflow-hidden bg-white shadow-xs max-h-[350px] overflow-y-auto">
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="bg-slate-50 text-slate-500 text-[10px] font-bold uppercase tracking-wider border-b border-slate-200">
+                          <th className="py-3 px-4">Invoice Ref</th>
+                          <th className="py-3 px-4">Vendor Code</th>
+                          <th className="py-3 px-4 text-right">Cleared Amount</th>
+                          <th className="py-3 px-4">UTR Number</th>
+                          <th className="py-3 px-4">Date</th>
+                          <th className="py-3 px-4 text-center">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 text-slate-700">
+                        {parsedRows.map((row, index) => {
+                          return (
+                            <tr key={index} className={`hover:bg-slate-50/40 transition-colors ${!row.isValid ? 'bg-rose-50/20' : ''}`}>
+                              <td className="py-3 px-4 font-bold font-mono text-slate-900 uppercase">{row.invoiceNumber || '—'}</td>
+                              <td className="py-3 px-4">
+                                <div className="space-y-0.5">
+                                  <div className="font-mono font-bold text-slate-800">{row.vendorCode || '—'}</div>
+                                  {row.vendorName && <div className="text-[10px] text-slate-400 font-medium">{row.vendorName}</div>}
+                                </div>
+                              </td>
+                              <td className="py-3 px-4 text-right font-semibold font-mono">{row.amount > 0 ? `$${row.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}</td>
+                              <td className="py-3 px-4 font-mono text-slate-600 text-[11px] uppercase">{row.utrNumber || '—'}</td>
+                              <td className="py-3 px-4 text-slate-500 font-mono text-[11px]">{row.paymentDate || '—'}</td>
+                              <td className="py-3 px-4 text-center">
+                                {row.isValid ? (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-bold text-[9px] uppercase tracking-wide bg-emerald-50 text-emerald-700 border border-emerald-100">
+                                    <Check className="h-2.5 w-2.5" />
+                                    <span>Valid</span>
+                                  </span>
+                                ) : (
+                                  <div className="flex flex-col gap-0.5 items-center justify-center">
+                                    {row.errors.map((errStr: string, errIdx: number) => (
+                                      <span key={errIdx} className="inline-block px-2 py-0.5 rounded-full font-bold text-[9px] uppercase tracking-wide bg-rose-50 text-rose-600 border border-rose-100" title={errStr}>
+                                        {errStr}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="p-6 bg-slate-50 border-t border-slate-150 flex items-center justify-between gap-3">
+              <div className="text-[11px] text-slate-400 leading-normal max-w-sm hidden sm:block">
+                Only valid parsed rows will be imported. Unregistered vendor codes or duplicate invoices are highlighted and automatically isolated for protection.
+              </div>
+              <div className="flex items-center gap-2.5 ml-auto">
+                <button 
+                  type="button" 
+                  onClick={() => setIsCsvModalOpen(false)} 
+                  className="px-5 py-2.5 rounded-full text-xs font-bold text-slate-500 hover:text-slate-700 bg-white hover:bg-slate-100 border border-slate-200 transition-colors cursor-pointer"
+                  id="btn-cancel-csv-import"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="button" 
+                  onClick={handleImportParsedRows}
+                  disabled={parsedRows.filter(r => r.isValid).length === 0}
+                  className="px-6 py-2.5 rounded-full text-xs font-extrabold uppercase tracking-wider text-white bg-indigo-600 hover:bg-indigo-700 transition-all shadow-sm hover:shadow disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center gap-1.5"
+                  id="btn-submit-csv-import"
+                >
+                  <Check className="h-4 w-4" />
+                  <span>Import {parsedRows.filter(r => r.isValid).length} Valid Ingestions</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
