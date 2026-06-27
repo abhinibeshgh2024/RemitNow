@@ -457,6 +457,9 @@ export default function App() {
       totalCount: paymentIds.length,
     });
 
+    let successCount = 0;
+    let failCount = 0;
+
     for (let i = 0; i < paymentIds.length; i++) {
       const pId = paymentIds[i];
       const p = paymentsRef.current.find((item) => item.id === pId);
@@ -468,13 +471,37 @@ export default function App() {
           processedCount: i + 1,
         }));
 
-        await executeDispatch(p, 0, senderEmail);
+        try {
+          await executeDispatch(p, 0, senderEmail);
+          
+          // Re-evaluate actual status of this payment from the updated state reference
+          const updatedP = paymentsRef.current.find((item) => item.id === pId);
+          if (updatedP && updatedP.status === 'Delivered') {
+            successCount++;
+          } else {
+            failCount++;
+          }
+        } catch (error) {
+          console.error(`Uninterrupted Batch Sending - Failed to dispatch payment ID ${pId}:`, error);
+          failCount++;
+          try {
+            handleDispatchFailure(p, error instanceof Error ? error.message : String(error), 0);
+          } catch (e) {
+            console.error('Failed to log batch item failure:', e);
+          }
+        }
+        
         // Soft pause between loop triggers to make progress visual
         await new Promise((resolve) => setTimeout(resolve, 600));
       }
     }
 
     setBatchStatus((prev) => ({ ...prev, isProcessing: false }));
+
+    // Show a summary alert informing the user of the final batch results
+    setTimeout(() => {
+      alert(`Automated Batch Dispatch completed successfully!\n\n• Successfully Delivered: ${successCount}\n• Failures/Retries Scheduled: ${failCount}\n• Total Processed: ${paymentIds.length}`);
+    }, 200);
   };
 
   const handleManualRetryLog = async (log: EmailLog) => {
@@ -533,7 +560,17 @@ export default function App() {
   const handleAddVendor = (v: Vendor) => {
     const creatorEmail = currentUser?.email || 'operations@remitflow.co';
     const exists = vendors.some((item) => item.code === v.code && item.createdBy === creatorEmail);
-    if (exists) return `Vendor Code "${v.code}" is already registered.`;
+    if (exists) {
+      // Overwrite/Update existing vendor details gracefully instead of blocking
+      setVendors((curr) =>
+        curr.map((item) =>
+          item.code === v.code && item.createdBy === creatorEmail
+            ? { ...v, createdBy: creatorEmail }
+            : item
+        )
+      );
+      return true;
+    }
     
     const vendorWithCreator = {
       ...v,
@@ -564,9 +601,7 @@ export default function App() {
 
   const handleAddPayment = (p: Payment) => {
     const creatorEmail = currentUser?.email || 'operations@remitflow.co';
-    const exists = payments.some((item) => item.invoiceNumber === p.invoiceNumber && item.createdBy === creatorEmail);
-    if (exists) return `Invoice Reference "${p.invoiceNumber}" is already registered.`;
-    
+    // Allow duplicate invoice numbers (no barriers in selecting same files for remittance)
     const paymentWithCreator = {
       ...p,
       createdBy: creatorEmail,

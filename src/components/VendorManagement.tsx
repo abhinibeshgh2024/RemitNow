@@ -141,6 +141,38 @@ export default function VendorManagement({
     setTimeout(() => downloadCorporateSettlements(), 400);
   };
 
+  const handleExportToCsv = () => {
+    if (vendors.length === 0) {
+      alert('No vendors to export.');
+      return;
+    }
+    const headers = ['Vendor Code', 'Company Name', 'Email', 'Contact Person', 'Phone', 'Currency'];
+    const csvRows = [headers.join(',')];
+    
+    vendors.forEach(v => {
+      const row = [
+        `"${v.code.replace(/"/g, '""')}"`,
+        `"${v.name.replace(/"/g, '""')}"`,
+        `"${v.email.replace(/"/g, '""')}"`,
+        `"${v.contactPerson.replace(/"/g, '""')}"`,
+        `"${v.phone.replace(/"/g, '""')}"`,
+        `"${v.currency.replace(/"/g, '""')}"`
+      ];
+      csvRows.push(row.join(','));
+    });
+    
+    const csvContent = csvRows.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', 'exported_vendors.csv');
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const handleCsvFileSelected = (file: File) => {
     setCsvFile(file);
     setCsvError('');
@@ -193,12 +225,13 @@ export default function VendorManagement({
           const currencyVal = currencyIdx !== -1 && values[currencyIdx] ? values[currencyIdx].trim().toUpperCase() : 'USD';
 
           const errors: string[] = [];
+          const warnings: string[] = [];
           if (!vendorCode) {
             errors.push('Missing Vendor Code');
           } else if (existingCodes.has(vendorCode)) {
-            errors.push(`Code "${vendorCode}" is already registered`);
+            warnings.push('Registered (Will Update)');
           } else if (parsedCodesInBatch.has(vendorCode)) {
-            errors.push(`Duplicate code "${vendorCode}" in CSV`);
+            warnings.push('Duplicate (Will Merge)');
           }
 
           if (!vendorName) errors.push('Missing Company Name');
@@ -229,6 +262,7 @@ export default function VendorManagement({
             phone: phoneVal || 'N/A',
             currency: currencyVal || 'USD',
             errors,
+            warnings,
             isValid: errors.length === 0,
           });
         }
@@ -383,6 +417,14 @@ export default function VendorManagement({
           >
             <Upload className="h-4 w-4 text-slate-500" />
             <span>Import CSV</span>
+          </button>
+          <button
+            onClick={handleExportToCsv}
+            className="flex items-center justify-center gap-2 px-4 py-3 bg-white hover:bg-slate-50 text-slate-700 font-semibold text-xs rounded-full border border-slate-200 transition-colors cursor-pointer shadow-xs"
+            id="btn-export-vendor-csv-trigger"
+          >
+            <Download className="h-4 w-4 text-slate-500" />
+            <span>Export CSV</span>
           </button>
           <button
             onClick={handleOpenAddForm}
@@ -889,10 +931,17 @@ export default function VendorManagement({
                               <td className="py-3 px-4 text-slate-700 font-bold font-mono text-[11px]">{row.currency || '—'}</td>
                               <td className="py-3 px-4 text-center">
                                 {row.isValid ? (
-                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-bold text-[9px] uppercase tracking-wide bg-emerald-50 text-emerald-700 border border-emerald-100">
-                                    <Check className="h-2.5 w-2.5" />
-                                    <span>Valid</span>
-                                  </span>
+                                  <div className="flex flex-col gap-1 items-center justify-center">
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-bold text-[9px] uppercase tracking-wide bg-emerald-50 text-emerald-700 border border-emerald-100">
+                                      <Check className="h-2.5 w-2.5" />
+                                      <span>Valid</span>
+                                    </span>
+                                    {row.warnings && row.warnings.map((warnStr: string, warnIdx: number) => (
+                                      <span key={warnIdx} className="inline-block px-2 py-0.5 rounded-full font-bold text-[8px] uppercase tracking-wide bg-amber-50 text-amber-600 border border-amber-100" title={warnStr}>
+                                        {warnStr}
+                                      </span>
+                                    ))}
+                                  </div>
                                 ) : (
                                   <div className="flex flex-col gap-0.5 items-center justify-center">
                                     {row.errors.map((errStr: string, errIdx: number) => (

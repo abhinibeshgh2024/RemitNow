@@ -204,6 +204,38 @@ export default function RemittanceIngestion({
     setTimeout(() => downloadCorporateSettlements(), 400);
   };
 
+  const handleExportToCsv = () => {
+    if (payments.length === 0) {
+      alert('No transactions to export.');
+      return;
+    }
+    const headers = ['Invoice Number', 'Vendor Code', 'Cleared Amount', 'UTR Number', 'Payment Date', 'Status'];
+    const csvRows = [headers.join(',')];
+    
+    payments.forEach(p => {
+      const row = [
+        `"${p.invoiceNumber.replace(/"/g, '""')}"`,
+        `"${p.vendorCode.replace(/"/g, '""')}"`,
+        p.amount.toFixed(2),
+        `"${p.utrNumber.replace(/"/g, '""')}"`,
+        `"${p.paymentDate.replace(/"/g, '""')}"`,
+        `"${p.status.replace(/"/g, '""')}"`
+      ];
+      csvRows.push(row.join(','));
+    });
+    
+    const csvContent = csvRows.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', 'exported_transactions.csv');
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const handleCsvFileSelected = (file: File) => {
     setCsvFile(file);
     setCsvError('');
@@ -262,6 +294,7 @@ export default function RemittanceIngestion({
           const alreadyExists = payments.some(p => p.invoiceNumber === invoiceNumber);
 
           const errors: string[] = [];
+          const warnings: string[] = [];
           if (!invoiceNumber) errors.push('Missing Invoice Reference');
           if (!vendorCode) {
             errors.push('Missing Vendor Code');
@@ -273,7 +306,7 @@ export default function RemittanceIngestion({
           }
           if (!utrNumber) errors.push('Missing UTR Number');
           if (alreadyExists) {
-            errors.push(`Invoice "${invoiceNumber}" already registered`);
+            warnings.push('Re-ingestion (Duplicate Invoice)');
           }
 
           rows.push({
@@ -284,6 +317,7 @@ export default function RemittanceIngestion({
             utrNumber,
             paymentDate,
             errors,
+            warnings,
             isValid: errors.length === 0,
           });
         }
@@ -493,6 +527,14 @@ export default function RemittanceIngestion({
           >
             <Upload className="h-4 w-4 text-slate-500" />
             <span>Import CSV</span>
+          </button>
+          <button
+            onClick={handleExportToCsv}
+            className="flex items-center gap-1.5 px-4 py-2.5 bg-white hover:bg-slate-50 text-slate-700 rounded-full border border-slate-200 font-semibold text-xs transition-colors cursor-pointer"
+            id="btn-export-csv-trigger"
+          >
+            <Download className="h-4 w-4 text-slate-500" />
+            <span>Export CSV</span>
           </button>
           <button
             onClick={() => setIsFormOpen(true)}
@@ -1163,10 +1205,17 @@ export default function RemittanceIngestion({
                               <td className="py-3 px-4 text-slate-500 font-mono text-[11px]">{row.paymentDate || '—'}</td>
                               <td className="py-3 px-4 text-center">
                                 {row.isValid ? (
-                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-bold text-[9px] uppercase tracking-wide bg-emerald-50 text-emerald-700 border border-emerald-100">
-                                    <Check className="h-2.5 w-2.5" />
-                                    <span>Valid</span>
-                                  </span>
+                                  <div className="flex flex-col gap-1 items-center justify-center">
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-bold text-[9px] uppercase tracking-wide bg-emerald-50 text-emerald-700 border border-emerald-100">
+                                      <Check className="h-2.5 w-2.5" />
+                                      <span>Valid</span>
+                                    </span>
+                                    {row.warnings && row.warnings.map((warnStr: string, warnIdx: number) => (
+                                      <span key={warnIdx} className="inline-block px-2 py-0.5 rounded-full font-bold text-[8px] uppercase tracking-wide bg-amber-50 text-amber-600 border border-amber-100" title={warnStr}>
+                                        {warnStr}
+                                      </span>
+                                    ))}
+                                  </div>
                                 ) : (
                                   <div className="flex flex-col gap-0.5 items-center justify-center">
                                     {row.errors.map((errStr: string, errIdx: number) => (
