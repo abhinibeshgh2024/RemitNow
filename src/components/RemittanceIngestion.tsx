@@ -974,7 +974,7 @@ export default function RemittanceIngestion({
                         Browse Files
                         <input 
                           type="file" 
-                          accept=".csv" 
+                          accept=".csv,text/csv,application/csv,application/vnd.ms-excel,text/plain" 
                           className="hidden" 
                           onChange={(e) => {
                             const file = e.target.files?.[0];
