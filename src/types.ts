@@ -10,6 +10,7 @@ export interface Vendor {
   phone: string;
   contactPerson: string;
   currency: string; // USD, EUR, INR, GBP, etc.
+  createdBy?: string;
 }
 
 export type PaymentStatus = 'Unprocessed' | 'In Progress' | 'Delivered' | 'Failed';
@@ -26,6 +27,8 @@ export interface Payment {
   maxRetries: number;
   failureReason?: string;
   lastAttempted?: string;
+  senderEmail?: string;
+  createdBy?: string;
 }
 
 export type DeliveryEngineType = 'Sandbox' | 'Native Share';
@@ -66,4 +69,5 @@ export interface EmailLog {
   status: 'Success' | 'Failed';
   feedback: string;
   retryAttempt: number;
+  createdBy?: string;
 }

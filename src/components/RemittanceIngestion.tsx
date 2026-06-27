@@ -21,6 +21,7 @@ import {
   AlertTriangle,
   Play,
   Layers,
+  Mail,
 } from 'lucide-react';
 import { Payment, Vendor, PaymentStatus } from '../types';
 import { generateRemittancePDF } from '../utils/pdfGenerator';
@@ -32,8 +33,8 @@ interface RemittanceIngestionProps {
   onAddPayment: (p: Payment) => boolean | string;
   onDeletePayment: (id: string) => void;
   onClearPayments: () => void;
-  onDispatchSingle: (p: Payment) => Promise<void>;
-  onDispatchBatch: (pIds: string[]) => Promise<void>;
+  onDispatchSingle: (p: Payment, senderEmail?: string) => Promise<void>;
+  onDispatchBatch: (pIds: string[], senderEmail?: string) => Promise<void>;
   batchProcessingStatus: {
     isProcessing: boolean;
     currentInvoice: string;
@@ -68,6 +69,36 @@ export default function RemittanceIngestion({
   // PDF Preview Drawer state
   const [previewPdfUrl, setPreviewPdfUrl] = useState<string | null>(null);
   const [previewInvoice, setPreviewInvoice] = useState<string>('');
+
+  // Dynamic dispatch selection modal state
+  const [dispatchSelection, setDispatchSelection] = useState<{
+    isOpen: boolean;
+    type: 'single' | 'batch';
+    payment?: Payment;
+    pendingIds?: string[];
+  }>({
+    isOpen: false,
+    type: 'single',
+  });
+  const [selectedSenderEmail, setSelectedSenderEmail] = useState('joseon359@gmail.com');
+
+  const triggerSingleDispatch = (payment: Payment) => {
+    setDispatchSelection({
+      isOpen: true,
+      type: 'single',
+      payment,
+    });
+  };
+
+  const handleConfirmDispatch = async () => {
+    const { type, payment, pendingIds } = dispatchSelection;
+    setDispatchSelection(prev => ({ ...prev, isOpen: false }));
+    if (type === 'single' && payment) {
+      await onDispatchSingle(payment, selectedSenderEmail);
+    } else if (type === 'batch' && pendingIds) {
+      await onDispatchBatch(pendingIds, selectedSenderEmail);
+    }
+  };
 
   // Destructive confirmations
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -196,7 +227,11 @@ export default function RemittanceIngestion({
       alert('There are no Unprocessed pending payments ready for batch dispatch.');
       return;
     }
-    onDispatchBatch(pendingIds);
+    setDispatchSelection({
+      isOpen: true,
+      type: 'batch',
+      pendingIds,
+    });
   };
 
   return (
@@ -535,7 +570,7 @@ export default function RemittanceIngestion({
 
                           {/* Single Dispatch Trigger */}
                           <button
-                            onClick={() => onDispatchSingle(payment)}
+                            onClick={() => triggerSingleDispatch(payment)}
                             disabled={isUnresolved || batchProcessingStatus.isProcessing || payment.status === 'In Progress'}
                             className={`p-1.5 rounded-lg transition-all cursor-pointer ${
                               payment.status === 'Delivered'
@@ -737,6 +772,122 @@ export default function RemittanceIngestion({
         cancelText="Cancel"
         isDestructive={true}
       />
+
+      {/* Dynamic Dispatcher Account Selection Modal */}
+      {dispatchSelection.isOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" id="sender-select-modal">
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-xs transition-opacity" onClick={() => setDispatchSelection({ isOpen: false, type: 'single' })} />
+          
+          <div className="bg-white rounded-3xl max-w-md w-full border border-slate-100 shadow-2xl overflow-hidden relative z-10 animate-in fade-in zoom-in-95 duration-200">
+            {/* Header */}
+            <div className="p-6 pb-4 border-b border-slate-100">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="h-9 w-9 bg-indigo-50 rounded-xl flex items-center justify-center text-indigo-600">
+                    <Mail className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-slate-900 text-sm uppercase tracking-wider font-sans">
+                      Verify Delivery Channel
+                    </h3>
+                    <p className="text-[11px] text-slate-400 font-medium">
+                      {dispatchSelection.type === 'single' ? 'Select sending identity for single invoice' : 'Select sending identity for batch run'}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setDispatchSelection({ isOpen: false, type: 'single' })}
+                  className="text-slate-400 hover:text-slate-600 p-1 rounded-full hover:bg-slate-50 transition-colors"
+                  id="btn-close-sender-modal"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Content */}
+            <div className="p-6 space-y-4">
+              <p className="text-xs text-slate-500 leading-relaxed">
+                Choose which verified corporate outbound email address should authorize and dispatch this remittance. This label will be shown in the vendor's mail receipt headers.
+              </p>
+
+              {/* Selections list */}
+              <div className="space-y-2.5">
+                {[
+                  {
+                    email: 'joseon359@gmail.com',
+                    label: 'Primary RemitFlow Account',
+                    desc: 'Default high-delivery corporate finance address.',
+                  },
+                  {
+                    email: 'rudrapratapsingh072006@gmail.com',
+                    label: 'Alternative Delivery Channel',
+                    desc: 'Secondary transaction channel for fallback routing.',
+                  }
+                ].map((channel) => {
+                  const isSelected = selectedSenderEmail === channel.email;
+                  return (
+                    <button
+                      key={channel.email}
+                      type="button"
+                      onClick={() => setSelectedSenderEmail(channel.email)}
+                      className={`w-full text-left p-4 rounded-2xl border transition-all duration-150 flex items-start gap-3.5 focus:outline-none cursor-pointer ${
+                        isSelected
+                          ? 'border-indigo-600 bg-indigo-50/50 ring-2 ring-indigo-600/10'
+                          : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/50'
+                      }`}
+                      id={`channel-option-${channel.email.replace(/[@.]/g, '-')}`}
+                    >
+                      <div className={`h-5 w-5 rounded-full border flex items-center justify-center shrink-0 mt-0.5 transition-all ${
+                        isSelected
+                          ? 'border-indigo-600 bg-indigo-600 text-white'
+                          : 'border-slate-300 bg-white'
+                      }`}>
+                        {isSelected && <span className="h-1.5 w-1.5 rounded-full bg-white" />}
+                      </div>
+                      
+                      <div className="space-y-0.5">
+                        <div className="flex items-center gap-2">
+                          <span className={`text-xs font-bold leading-none ${isSelected ? 'text-indigo-950' : 'text-slate-800'}`}>
+                            {channel.label}
+                          </span>
+                        </div>
+                        <p className={`text-[11px] font-mono font-semibold ${isSelected ? 'text-indigo-600' : 'text-slate-500'}`}>
+                          {channel.email}
+                        </p>
+                        <p className="text-[10px] text-slate-400">
+                          {channel.desc}
+                        </p>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-6 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setDispatchSelection({ isOpen: false, type: 'single' })}
+                className="px-4 py-2 text-xs font-bold text-slate-500 hover:text-slate-700 bg-white hover:bg-slate-100 border border-slate-200 rounded-full cursor-pointer transition-all"
+                id="btn-cancel-sender-dispatch"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDispatch}
+                className="px-5 py-2.5 text-xs font-extrabold uppercase tracking-wider text-white bg-indigo-600 hover:bg-indigo-700 rounded-full shadow-sm hover:shadow transition-all cursor-pointer flex items-center gap-1.5"
+                id="btn-confirm-sender-dispatch"
+              >
+                <ArrowRight className="h-3.5 w-3.5" />
+                <span>Confirm & Send</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

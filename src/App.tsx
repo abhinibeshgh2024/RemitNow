@@ -84,12 +84,20 @@ export default function App() {
   // --- 1. Core Persistent States ---
   const [vendors, setVendors] = useState<Vendor[]>(() => {
     const saved = localStorage.getItem('remit_vendors');
-    return saved ? JSON.parse(saved) : DEFAULT_VENDORS;
+    const items: Vendor[] = saved ? JSON.parse(saved) : DEFAULT_VENDORS;
+    return items.map((v) => ({
+      ...v,
+      createdBy: v.createdBy || 'joseon359@gmail.com',
+    }));
   });
 
   const [payments, setPayments] = useState<Payment[]>(() => {
     const saved = localStorage.getItem('remit_payments');
-    return saved ? JSON.parse(saved) : DEFAULT_PAYMENTS;
+    const items: Payment[] = saved ? JSON.parse(saved) : DEFAULT_PAYMENTS;
+    return items.map((p) => ({
+      ...p,
+      createdBy: p.createdBy || 'joseon359@gmail.com',
+    }));
   });
 
   const [template, setTemplate] = useState<EmailTemplate>(() => {
@@ -211,7 +219,7 @@ export default function App() {
   }, []);
 
   // --- 7. Core Remittance Dispatch Logic ---
-  const executeDispatch = async (payment: Payment, attemptIndex = 0) => {
+  const executeDispatch = async (payment: Payment, attemptIndex = 0, senderEmailOverride?: string) => {
     // 1. Resolve Vendor Identity
     const vendor = vendorsRef.current.find((v) => v.code === payment.vendorCode);
     if (!vendor) {
@@ -223,12 +231,14 @@ export default function App() {
       return;
     }
 
-    // 2. Transition Payment to 'In Progress'
-    updatePaymentStatus(payment.id, 'In Progress');
+    const resolvedSender = senderEmailOverride || payment.senderEmail || configRef.current.senderEmail || 'joseon359@gmail.com';
 
-    // 3. Compile Tokenized Template Outputs
-    const compiledSubject = compileBracketText(templateRef.current.subject, payment, vendor);
-    const compiledBody = compileBracketText(templateRef.current.body, payment, vendor);
+    // 2. Transition Payment to 'In Progress' and set sender email
+    updatePaymentStatus(payment.id, 'In Progress', undefined, undefined, resolvedSender);
+
+    // 3. Compile Tokenized Template Outputs with dynamic SenderEmail replacement
+    const compiledSubject = compileBracketText(templateRef.current.subject, payment, vendor, resolvedSender);
+    const compiledBody = compileBracketText(templateRef.current.body, payment, vendor, resolvedSender);
 
     // 4. Native Share Manual Client Mode (mailto helper)
     if (configRef.current.activeEngine === 'Native Share') {
@@ -246,15 +256,16 @@ export default function App() {
           vendorCode: vendor.code,
           vendorName: vendor.name,
           recipientEmail: vendor.email,
-          senderEmail: currentUser?.email || 'joseon359@gmail.com',
+          senderEmail: resolvedSender,
           engine: 'Native Share',
           status: 'Success',
           feedback: 'Native mail app successfully initiated with pre-filled headers. PDF generated and download completed.',
           retryAttempt: attemptIndex,
+          createdBy: currentUser?.email || 'joseon359@gmail.com',
         };
 
         setLogs((current) => [...current, newLog]);
-        updatePaymentStatus(payment.id, 'Delivered', 0); // Clear counters on success
+        updatePaymentStatus(payment.id, 'Delivered', 0, undefined, resolvedSender); // Clear counters on success
 
         // Trigger manual browser download of PDF alongside MailClient launch
         generateRemittancePDF(payment, vendor, 'download');
@@ -276,6 +287,7 @@ export default function App() {
         engine: configRef.current.activeEngine,
         pdfBase64: pdfBase64,
         invoiceNumber: payment.invoiceNumber,
+        senderEmail: resolvedSender,
         smtpConfig: configRef.current.smtp?.isEnabled ? configRef.current.smtp : undefined,
         simulateFail: configRef.current.activeEngine === 'Sandbox' && simulateSandboxFailRef.current,
       };
@@ -303,15 +315,16 @@ export default function App() {
         vendorCode: vendor.code,
         vendorName: vendor.name,
         recipientEmail: vendor.email,
-        senderEmail: currentUser?.email || 'joseon359@gmail.com',
+        senderEmail: resolvedSender,
         engine: configRef.current.activeEngine,
         status: 'Success',
         feedback: resData.message || 'Transmitted successfully.',
         retryAttempt: attemptIndex,
+        createdBy: currentUser?.email || 'joseon359@gmail.com',
       };
 
       setLogs((current) => [...current, successLog]);
-      updatePaymentStatus(payment.id, 'Delivered', attemptIndex);
+      updatePaymentStatus(payment.id, 'Delivered', attemptIndex, undefined, resolvedSender);
 
       // Remove from visual retry tasks list
       setRetryTasks((current) => current.filter((t) => t.paymentId !== payment.id));
@@ -342,6 +355,7 @@ export default function App() {
       status: 'Failed',
       feedback: errorMsg,
       retryAttempt: attemptIndex,
+      createdBy: currentUser?.email || 'joseon359@gmail.com',
     };
 
     setLogs((current) => [...current, failLog]);
@@ -386,13 +400,14 @@ export default function App() {
         status: 'Failed',
         feedback: `Terminal Exhaustion: Failed after compiling ${maxLimit} attempts. Enforced halt.`,
         retryAttempt: attemptIndex,
+        createdBy: currentUser?.email || 'joseon359@gmail.com',
       };
       setLogs((current) => [...current, termLog]);
     }
   };
 
   // --- 9. Utility state setters ---
-  const updatePaymentStatus = (id: string, status: PaymentStatus, retryIndex?: number, failText?: string) => {
+  const updatePaymentStatus = (id: string, status: PaymentStatus, retryIndex?: number, failText?: string, senderEmail?: string) => {
     setPayments((current) =>
       current.map((p) => {
         if (p.id === id) {
@@ -402,6 +417,7 @@ export default function App() {
             retryCount: retryIndex !== undefined ? retryIndex : p.retryCount,
             failureReason: failText,
             lastAttempted: new Date().toISOString(),
+            senderEmail: senderEmail || p.senderEmail,
           };
         }
         return p;
@@ -409,7 +425,7 @@ export default function App() {
     );
   };
 
-  const compileBracketText = (text: string, payment: Payment, vendor: Vendor) => {
+  const compileBracketText = (text: string, payment: Payment, vendor: Vendor, senderEmailOverride?: string) => {
     if (!text) return '';
     let result = text;
     const formattedAmount = new Intl.NumberFormat('en-US', {
@@ -421,16 +437,16 @@ export default function App() {
     result = result.replace(/{InvoiceNumber}/g, payment.invoiceNumber);
     result = result.replace(/{Amount}/g, formattedAmount);
     result = result.replace(/{UTRNumber}/g, payment.utrNumber);
-    result = result.replace(/{SenderEmail}/g, currentUser?.email || 'joseon359@gmail.com');
+    result = result.replace(/{SenderEmail}/g, senderEmailOverride || payment.senderEmail || currentUser?.email || 'joseon359@gmail.com');
     return result;
   };
 
   // --- 10. Manual Operations Interventions ---
-  const handleDispatchSingle = async (payment: Payment) => {
-    await executeDispatch(payment, 0);
+  const handleDispatchSingle = async (payment: Payment, senderEmail?: string) => {
+    await executeDispatch(payment, 0, senderEmail);
   };
 
-  const handleDispatchBatch = async (paymentIds: string[]) => {
+  const handleDispatchBatch = async (paymentIds: string[], senderEmail?: string) => {
     if (paymentIds.length === 0) return;
 
     setBatchStatus({
@@ -452,7 +468,7 @@ export default function App() {
           processedCount: i + 1,
         }));
 
-        await executeDispatch(p, 0);
+        await executeDispatch(p, 0, senderEmail);
         // Soft pause between loop triggers to make progress visual
         await new Promise((resolve) => setTimeout(resolve, 600));
       }
@@ -492,56 +508,119 @@ export default function App() {
 
   // --- 11. Database Resets / Seeds ---
   const handleResetSystem = () => {
-    setVendors(DEFAULT_VENDORS);
-    setPayments(DEFAULT_PAYMENTS);
+    const creatorEmail = currentUser?.email || 'joseon359@gmail.com';
+    const seededVendors = DEFAULT_VENDORS.map((v) => ({ ...v, createdBy: creatorEmail }));
+    const seededPayments = DEFAULT_PAYMENTS.map((p) => ({ ...p, createdBy: creatorEmail }));
+
+    setVendors((curr) => {
+      const rest = curr.filter((v) => v.createdBy !== creatorEmail);
+      return [...rest, ...seededVendors];
+    });
+
+    setPayments((curr) => {
+      const rest = curr.filter((p) => p.createdBy !== creatorEmail);
+      return [...rest, ...seededPayments];
+    });
+
     setTemplate(DEFAULT_TEMPLATE);
     setConfig(DEFAULT_ENGINE_CONFIG);
-    setLogs([]);
+    setLogs((curr) => curr.filter((l) => l.createdBy !== creatorEmail));
     setRetryTasks([]);
     setSimulateSandboxFail(false);
   };
 
   // CRUD events matching
   const handleAddVendor = (v: Vendor) => {
-    const exists = vendors.some((item) => item.code === v.code);
+    const creatorEmail = currentUser?.email || 'joseon359@gmail.com';
+    const exists = vendors.some((item) => item.code === v.code && item.createdBy === creatorEmail);
     if (exists) return `Vendor Code "${v.code}" is already registered.`;
-    setVendors((curr) => [...curr, v]);
+    
+    const vendorWithCreator = {
+      ...v,
+      createdBy: creatorEmail,
+    };
+    setVendors((curr) => [...curr, vendorWithCreator]);
     return true;
   };
 
   const handleUpdateVendor = (oldCode: string, v: Vendor) => {
-    setVendors((curr) => curr.map((item) => (item.code === oldCode ? v : item)));
+    const creatorEmail = currentUser?.email || 'joseon359@gmail.com';
+    setVendors((curr) =>
+      curr.map((item) =>
+        item.code === oldCode && item.createdBy === creatorEmail
+          ? { ...v, createdBy: creatorEmail }
+          : item
+      )
+    );
     return true;
   };
 
   const handleDeleteVendor = (code: string) => {
-    setVendors((curr) => curr.filter((item) => item.code !== code));
+    const creatorEmail = currentUser?.email || 'joseon359@gmail.com';
+    setVendors((curr) =>
+      curr.filter((item) => !(item.code === code && item.createdBy === creatorEmail))
+    );
   };
 
   const handleAddPayment = (p: Payment) => {
-    const exists = payments.some((item) => item.invoiceNumber === p.invoiceNumber);
+    const creatorEmail = currentUser?.email || 'joseon359@gmail.com';
+    const exists = payments.some((item) => item.invoiceNumber === p.invoiceNumber && item.createdBy === creatorEmail);
     if (exists) return `Invoice Reference "${p.invoiceNumber}" is already registered.`;
-    setPayments((curr) => [...curr, p]);
+    
+    const paymentWithCreator = {
+      ...p,
+      createdBy: creatorEmail,
+    };
+    setPayments((curr) => [...curr, paymentWithCreator]);
     return true;
   };
 
   const handleDeletePayment = (id: string) => {
-    setPayments((curr) => curr.filter((p) => p.id !== id));
+    const creatorEmail = currentUser?.email || 'joseon359@gmail.com';
+    setPayments((curr) =>
+      curr.filter((p) => !(p.id === id && p.createdBy === creatorEmail))
+    );
     setRetryTasks((current) => current.filter((t) => t.paymentId !== id));
   };
 
-  // --- 12. Dashboard calculated insights ---
+  const handleClearPayments = () => {
+    const creatorEmail = currentUser?.email || 'joseon359@gmail.com';
+    setPayments((curr) => curr.filter((p) => p.createdBy !== creatorEmail));
+  };
+
+  const handleClearLogs = () => {
+    const creatorEmail = currentUser?.email || 'joseon359@gmail.com';
+    setLogs((curr) => curr.filter((l) => l.createdBy !== creatorEmail && l.senderEmail !== creatorEmail));
+  };
+
+  // --- 12. Tenant Filtered Lists ---
+  const visibleVendors = useMemo(() => {
+    const creatorEmail = currentUser?.email || 'joseon359@gmail.com';
+    return vendors.filter((v) => v.createdBy === creatorEmail);
+  }, [vendors, currentUser]);
+
+  const visiblePayments = useMemo(() => {
+    const creatorEmail = currentUser?.email || 'joseon359@gmail.com';
+    return payments.filter((p) => p.createdBy === creatorEmail);
+  }, [payments, currentUser]);
+
+  const visibleLogs = useMemo(() => {
+    const creatorEmail = currentUser?.email || 'joseon359@gmail.com';
+    return logs.filter((l) => l.createdBy === creatorEmail || l.senderEmail === creatorEmail);
+  }, [logs, currentUser]);
+
+  // --- 13. Dashboard calculated insights ---
   const dashboardStats = useMemo(() => {
-    const totalPayments = payments.length;
-    const pending = payments.filter((p) => p.status === 'Unprocessed').length;
-    const delivered = payments.filter((p) => p.status === 'Delivered').length;
-    const failed = payments.filter((p) => p.status === 'Failed').length;
-    const progress = payments.filter((p) => p.status === 'In Progress').length;
+    const totalPayments = visiblePayments.length;
+    const pending = visiblePayments.filter((p) => p.status === 'Unprocessed').length;
+    const delivered = visiblePayments.filter((p) => p.status === 'Delivered').length;
+    const failed = visiblePayments.filter((p) => p.status === 'Failed').length;
+    const progress = visiblePayments.filter((p) => p.status === 'In Progress').length;
 
     // Sum total currency volumes in USD-equivalent for simple display, or list them neatly
     const currenciesCount = new Map<string, number>();
-    payments.forEach((p) => {
-      const v = vendors.find((vend) => vend.code === p.vendorCode);
+    visiblePayments.forEach((p) => {
+      const v = visibleVendors.find((vend) => vend.code === p.vendorCode);
       const curr = v ? v.currency : 'USD';
       currenciesCount.set(curr, (currenciesCount.get(curr) || 0) + p.amount);
     });
@@ -552,7 +631,7 @@ export default function App() {
     });
 
     return { totalPayments, pending, delivered, failed, progress, volumes };
-  }, [payments, vendors]);
+  }, [visiblePayments, visibleVendors]);
 
   if (!currentUser) {
     return <AuthScreen onLoginSuccess={handleLoginSuccess} />;
@@ -847,7 +926,7 @@ export default function App() {
           {activeTab === 'vendors' && (
             <div className="animate-in fade-in duration-300">
               <VendorManagement
-                vendors={vendors}
+                vendors={visibleVendors}
                 onAddVendor={handleAddVendor}
                 onUpdateVendor={handleUpdateVendor}
                 onDeleteVendor={handleDeleteVendor}
@@ -858,11 +937,11 @@ export default function App() {
           {activeTab === 'payments' && (
             <div className="animate-in fade-in duration-300">
               <RemittanceIngestion
-                payments={payments}
-                vendors={vendors}
+                payments={visiblePayments}
+                vendors={visibleVendors}
                 onAddPayment={handleAddPayment}
                 onDeletePayment={handleDeletePayment}
-                onClearPayments={() => setPayments([])}
+                onClearPayments={handleClearPayments}
                 onDispatchSingle={handleDispatchSingle}
                 onDispatchBatch={handleDispatchBatch}
                 batchProcessingStatus={batchStatus}
@@ -876,8 +955,8 @@ export default function App() {
                 template={template}
                 onUpdateTemplate={setTemplate}
                 onResetTemplate={() => setTemplate(DEFAULT_TEMPLATE)}
-                sampleVendor={vendors[0]}
-                samplePayment={payments[0]}
+                sampleVendor={visibleVendors[0]}
+                samplePayment={visiblePayments[0]}
               />
             </div>
           )}
@@ -901,12 +980,13 @@ export default function App() {
               <EngineConfig
                 config={config}
                 onUpdateConfig={setConfig}
+                serverKeys={serverKeys}
               />
 
               {/* Delivery logs */}
               <AuditLogs
-                logs={logs}
-                onClearLogs={() => setLogs([])}
+                logs={visibleLogs}
+                onClearLogs={handleClearLogs}
                 onManualRetryLog={handleManualRetryLog}
               />
             </div>
@@ -939,7 +1019,7 @@ export default function App() {
       />
 
       {/* Offline WhatsApp Business Automated Chat Assistant */}
-      <AssistantWidget payments={payments} vendors={vendors} />
+      <AssistantWidget payments={visiblePayments} vendors={visibleVendors} />
     </div>
   );
 }

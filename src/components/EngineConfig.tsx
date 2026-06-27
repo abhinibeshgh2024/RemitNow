@@ -10,11 +10,18 @@ import { DeliveryEngineConfig, DeliveryEngineType } from '../types';
 interface EngineConfigProps {
   config: DeliveryEngineConfig;
   onUpdateConfig: (c: DeliveryEngineConfig) => void;
+  serverKeys?: {
+    smtpConfigured: boolean;
+    smtpUser: string;
+    smtpHost: string;
+    smtpPort: string;
+  };
 }
 
 export default function EngineConfig({
   config,
   onUpdateConfig,
+  serverKeys,
 }: EngineConfigProps) {
   const [activeEngine, setActiveEngine] = useState<DeliveryEngineType>(config.activeEngine);
   const [autoRetryLimit, setAutoRetryLimit] = useState(config.autoRetryLimit);
@@ -30,6 +37,46 @@ export default function EngineConfig({
   const [smtpSenderName, setSmtpSenderName] = useState(config.smtp?.senderName || 'RemitFlow Advice Dispatcher');
   const [smtpEnabled, setSmtpEnabled] = useState(config.smtp?.isEnabled || false);
   const [showSmtpPass, setShowSmtpPass] = useState(false);
+  const [showAdvancedSmtp, setShowAdvancedSmtp] = useState(config.smtp?.isEnabled || false);
+
+  // Diagnostic SMTP testing state
+  const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'failed'>('idle');
+  const [testMessage, setTestMessage] = useState('');
+
+  const handleTestSmtp = async () => {
+    setTestStatus('testing');
+    setTestMessage('');
+    try {
+      // Determine if testing custom UI values or system environment values
+      const isUsingServerEnv = !smtpHost && !smtpUser && serverKeys?.smtpConfigured;
+      
+      const payload = {
+        host: isUsingServerEnv ? serverKeys.smtpHost : smtpHost,
+        port: isUsingServerEnv ? parseInt(serverKeys.smtpPort) || 587 : smtpPort,
+        secure: isUsingServerEnv ? (serverKeys.smtpPort === '465') : smtpSecure,
+        user: isUsingServerEnv ? serverKeys.smtpUser : smtpUser,
+        pass: isUsingServerEnv ? 'env' : smtpPass,
+      };
+
+      const res = await fetch('/api/test-smtp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setTestStatus('success');
+        setTestMessage(data.message || 'SMTP Handshake verified successfully!');
+      } else {
+        setTestStatus('failed');
+        setTestMessage(data.error || 'SMTP Authentication rejected by outbound host.');
+      }
+    } catch (err: any) {
+      setTestStatus('failed');
+      setTestMessage(err.message || 'Express gateway timeout or network failure.');
+    }
+  };
 
   useEffect(() => {
     setActiveEngine(config.activeEngine);
@@ -146,138 +193,229 @@ export default function EngineConfig({
             </div>
           </div>
 
-          {/* Interactive SMTP Connection Panel */}
+          {/* Automated Zero-Configuration Dispatch Panel */}
           <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-5">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <h3 className="font-bold text-slate-900 text-sm uppercase tracking-wider flex items-center gap-2">
                 <Globe className="h-4.5 w-4.5 text-emerald-600" />
-                <span>SMTP Outbound Server Config</span>
+                <span>Background Delivery Status</span>
               </h3>
-              <div className="flex items-center gap-2">
-                <label className="text-xs font-bold text-slate-600 uppercase tracking-wider cursor-pointer select-none" htmlFor="smtp-toggle">
-                  {smtpEnabled ? 'Outbox Active' : 'Offline'}
-                </label>
+              <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full font-mono bg-emerald-100 text-emerald-700 border border-emerald-200 uppercase">
+                Active & Ready
+              </span>
+            </div>
+
+            <div className="space-y-4">
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Your <strong>Direct Background Send</strong> engine is active! Remittance advice sheets, payment updates, and PDF documents are automatically dispatched securely to your vendor's email address in real time.
+              </p>
+
+              <div className="p-4 bg-indigo-50/50 border border-indigo-100 rounded-xl space-y-2">
+                <div className="flex items-center gap-2 text-indigo-900 font-bold text-xs uppercase tracking-wide">
+                  <CheckCircle2 className="h-4 w-4 text-indigo-600" />
+                  <span>Zero-Configuration Delivery Enabled</span>
+                </div>
+                <p className="text-[11px] text-slate-500 leading-normal">
+                  No SMTP credentials or complicated outbound configurations are required. RemitFlow routes your transactional payment dispatches instantly through the integrated cloud relay gateway.
+                </p>
+              </div>
+
+              {/* Collapsible Trigger button for advanced manual SMTP override */}
+              <div className="pt-2">
                 <button
-                  id="smtp-toggle"
-                  onClick={() => setSmtpEnabled(!smtpEnabled)}
-                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                    smtpEnabled ? 'bg-emerald-600' : 'bg-slate-300'
-                  }`}
+                  type="button"
+                  onClick={() => setShowAdvancedSmtp(!showAdvancedSmtp)}
+                  className="text-xs font-semibold text-slate-500 hover:text-indigo-600 flex items-center gap-1.5 transition-colors cursor-pointer select-none"
                 >
-                  <span
-                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
-                      smtpEnabled ? 'translate-x-5' : 'translate-x-0'
-                    }`}
-                  />
+                  <span>{showAdvancedSmtp ? 'Hide Advanced SMTP Configuration (Optional) ▴' : 'Configure Custom SMTP Mail Server (Optional) ▾'}</span>
                 </button>
               </div>
             </div>
 
-            <p className="text-xs text-slate-500 leading-relaxed">
-              When <strong>Direct Background Send</strong> is selected and the Outbox is enabled, RemitFlow will use these custom SMTP details to securely route your vendor notices with PDF attachments.
-            </p>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4" id="smtp-inputs-grid">
-              {/* Host */}
-              <div className="space-y-1.5 col-span-2 md:col-span-1">
-                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
-                  SMTP Host Server
-                </label>
-                <input
-                  type="text"
-                  value={smtpHost}
-                  onChange={(e) => setSmtpHost(e.target.value)}
-                  placeholder="smtp.gmail.com"
-                  className="w-full bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:bg-white rounded-xl px-3.5 py-2 text-xs font-semibold placeholder-slate-400 font-mono text-slate-800 focus:outline-none"
-                  disabled={!smtpEnabled}
-                />
-              </div>
-
-              {/* Port */}
-              <div className="space-y-1.5 col-span-2 md:col-span-1">
-                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
-                  Port
-                </label>
-                <input
-                  type="number"
-                  value={smtpPort}
-                  onChange={(e) => setSmtpPort(parseInt(e.target.value) || 587)}
-                  placeholder="587"
-                  className="w-full bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:bg-white rounded-xl px-3.5 py-2 text-xs font-semibold placeholder-slate-400 font-mono text-slate-800 focus:outline-none"
-                  disabled={!smtpEnabled}
-                />
-              </div>
-
-              {/* Username */}
-              <div className="space-y-1.5 col-span-2">
-                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
-                  SMTP Username / Authorized Email
-                </label>
-                <div className="relative">
-                  <Mail className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-                  <input
-                    type="email"
-                    value={smtpUser}
-                    onChange={(e) => setSmtpUser(e.target.value)}
-                    placeholder="finance@yourcompany.com"
-                    className="w-full bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:bg-white rounded-xl pl-9 pr-3.5 py-2 text-xs font-semibold placeholder-slate-400 font-mono text-slate-800 focus:outline-none"
-                    disabled={!smtpEnabled}
-                  />
+            {showAdvancedSmtp && (
+              <div className="pt-4 border-t border-slate-100 space-y-5" id="advanced-smtp-options">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest font-mono">Custom SMTP Server Outbox</span>
+                  <div className="flex items-center gap-2">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer" htmlFor="smtp-toggle">
+                      {smtpEnabled ? 'Custom Outbox Enabled' : 'Disabled'}
+                    </label>
+                    <button
+                      id="smtp-toggle"
+                      onClick={() => setSmtpEnabled(!smtpEnabled)}
+                      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                        smtpEnabled ? 'bg-emerald-600' : 'bg-slate-300'
+                      }`}
+                    >
+                      <span
+                        className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                          smtpEnabled ? 'translate-x-4' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
                 </div>
-              </div>
 
-              {/* Password */}
-              <div className="space-y-1.5 col-span-2">
-                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
-                  SMTP Password / Application Pass
-                </label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-                  <input
-                    type={showSmtpPass ? 'text' : 'password'}
-                    value={smtpPass}
-                    onChange={(e) => setSmtpPass(e.target.value)}
-                    placeholder="••••••••••••"
-                    className="w-full bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:bg-white rounded-xl pl-9 pr-10 py-2 text-xs font-semibold placeholder-slate-400 font-mono text-slate-800 focus:outline-none"
-                    disabled={!smtpEnabled}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowSmtpPass(!showSmtpPass)}
-                    className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 disabled:opacity-50"
-                    disabled={!smtpEnabled}
-                  >
-                    {showSmtpPass ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
-                </div>
-              </div>
-
-              {/* Friendly Name */}
-              <div className="space-y-1.5 col-span-2">
-                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
-                  Sender Display Name (Alias)
-                </label>
-                <input
-                  type="text"
-                  value={smtpSenderName}
-                  onChange={(e) => setSmtpSenderName(e.target.value)}
-                  placeholder="RemitFlow Finance Ops"
-                  className="w-full bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:bg-white rounded-xl px-3.5 py-2 text-xs font-semibold placeholder-slate-400 text-slate-800 focus:outline-none"
-                  disabled={!smtpEnabled}
-                />
-              </div>
-            </div>
-
-            {/* Hint Box */}
-            <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-250 flex gap-2.5 text-xs text-slate-600">
-              <Info className="h-4.5 w-4.5 text-indigo-500 shrink-0 mt-0.5" />
-              <div className="space-y-1">
-                <p className="font-bold">Using Personal Email Providers:</p>
                 <p className="text-[11px] text-slate-500 leading-normal">
-                  To send via Gmail, set the host to <code className="font-mono bg-slate-200 px-1 rounded">smtp.gmail.com</code> with port <code className="font-mono bg-slate-200 px-1 rounded">587</code>, and use a generated <strong>16-digit App Password</strong> rather than your standard account login.
+                  If you prefer to bypass the cloud relay and route notices through your own server (e.g. corporate mail, custom Outlook, G Suite), enable the toggle above and provide credentials below.
                 </p>
+
+                {serverKeys?.smtpConfigured && (
+                  <div className="p-4 bg-emerald-50/70 border border-emerald-200/80 rounded-xl flex items-start gap-3">
+                    <div className="h-5 w-5 rounded-full bg-emerald-500 flex items-center justify-center text-white shrink-0 mt-0.5 shadow-sm">
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                    </div>
+                    <div className="space-y-1">
+                      <h4 className="text-xs font-black text-emerald-800 uppercase tracking-wider">System-wide Outbox Ready</h4>
+                      <p className="text-[11px] text-emerald-700 font-medium leading-normal">
+                        A secure outbound mail server has been configured on the backend at <strong className="font-mono bg-emerald-100/60 px-1 rounded text-emerald-800">{serverKeys.smtpHost}:{serverKeys.smtpPort}</strong> authorized for <strong className="font-mono bg-emerald-100/60 px-1 rounded text-emerald-800">{serverKeys.smtpUser}</strong>.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4" id="smtp-inputs-grid">
+                  {/* Host */}
+                  <div className="space-y-1.5 col-span-2 md:col-span-1">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                      SMTP Host Server
+                    </label>
+                    <input
+                      type="text"
+                      value={smtpHost}
+                      onChange={(e) => setSmtpHost(e.target.value)}
+                      placeholder="smtp.gmail.com"
+                      className="w-full bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:bg-white rounded-xl px-3.5 py-2 text-xs font-semibold placeholder-slate-400 font-mono text-slate-800 focus:outline-none"
+                      disabled={!smtpEnabled}
+                    />
+                  </div>
+
+                  {/* Port */}
+                  <div className="space-y-1.5 col-span-2 md:col-span-1">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                      Port
+                    </label>
+                    <input
+                      type="number"
+                      value={smtpPort}
+                      onChange={(e) => setSmtpPort(parseInt(e.target.value) || 587)}
+                      placeholder="587"
+                      className="w-full bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:bg-white rounded-xl px-3.5 py-2 text-xs font-semibold placeholder-slate-400 font-mono text-slate-800 focus:outline-none"
+                      disabled={!smtpEnabled}
+                    />
+                  </div>
+
+                  {/* Username */}
+                  <div className="space-y-1.5 col-span-2">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                      SMTP Username / Authorized Email
+                    </label>
+                    <div className="relative">
+                      <Mail className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                      <input
+                        type="email"
+                        value={smtpUser}
+                        onChange={(e) => setSmtpUser(e.target.value)}
+                        placeholder="finance@yourcompany.com"
+                        className="w-full bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:bg-white rounded-xl pl-9 pr-3.5 py-2 text-xs font-semibold placeholder-slate-400 font-mono text-slate-800 focus:outline-none"
+                        disabled={!smtpEnabled}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Password */}
+                  <div className="space-y-1.5 col-span-2">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                      SMTP Password / Application Pass
+                    </label>
+                    <div className="relative">
+                      <Lock className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                      <input
+                        type={showSmtpPass ? 'text' : 'password'}
+                        value={smtpPass}
+                        onChange={(e) => setSmtpPass(e.target.value)}
+                        placeholder="••••••••••••"
+                        className="w-full bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:bg-white rounded-xl pl-9 pr-10 py-2 text-xs font-semibold placeholder-slate-400 font-mono text-slate-800 focus:outline-none"
+                        disabled={!smtpEnabled}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowSmtpPass(!showSmtpPass)}
+                        className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 disabled:opacity-50"
+                        disabled={!smtpEnabled}
+                      >
+                        {showSmtpPass ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Friendly Name */}
+                  <div className="space-y-1.5 col-span-2">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                      Sender Display Name (Alias)
+                    </label>
+                    <input
+                      type="text"
+                      value={smtpSenderName}
+                      onChange={(e) => setSmtpSenderName(e.target.value)}
+                      placeholder="RemitFlow Finance Ops"
+                      className="w-full bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:bg-white rounded-xl px-3.5 py-2 text-xs font-semibold placeholder-slate-400 text-slate-800 focus:outline-none"
+                      disabled={!smtpEnabled}
+                    />
+                  </div>
+                </div>
+
+                {/* Hint Box */}
+                <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-250 flex gap-2.5 text-xs text-slate-600">
+                  <Info className="h-4.5 w-4.5 text-indigo-500 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <p className="font-bold">Using Personal Email Providers:</p>
+                    <p className="text-[11px] text-slate-500 leading-normal">
+                      To send via Gmail, set the host to <code className="font-mono bg-slate-200 px-1 rounded">smtp.gmail.com</code> with port <code className="font-mono bg-slate-200 px-1 rounded">587</code>, and use a generated <strong>16-digit App Password</strong> rather than your standard account login.
+                    </p>
+                  </div>
+                </div>
+
+                {/* SMTP Diagnostics Test Connection */}
+                <div className="pt-4 border-t border-slate-100 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest font-mono">
+                      SMTP Handshake Diagnostics
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleTestSmtp}
+                      disabled={testStatus === 'testing' || (!smtpEnabled && !serverKeys?.smtpConfigured)}
+                      className="px-3.5 py-1.5 bg-slate-900 text-white text-[11px] font-extrabold uppercase tracking-widest rounded-lg shadow-sm hover:bg-slate-800 disabled:bg-slate-200 disabled:text-slate-400 transition-colors cursor-pointer"
+                    >
+                      {testStatus === 'testing' ? 'Handshaking...' : 'Verify Transport'}
+                    </button>
+                  </div>
+
+                  {testStatus !== 'idle' && (
+                    <div
+                      className={`p-3.5 rounded-xl border text-xs leading-normal transition-all ${
+                        testStatus === 'success'
+                          ? 'bg-emerald-50 border-emerald-200 text-emerald-800 font-semibold'
+                          : 'bg-rose-50 border-rose-200 text-rose-800 font-mono text-[11px]'
+                      }`}
+                    >
+                      {testStatus === 'success' ? (
+                        <p className="flex items-center gap-1.5">
+                          <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                          <span>{testMessage}</span>
+                        </p>
+                      ) : (
+                        <div className="space-y-1">
+                          <p className="font-black uppercase tracking-wide text-rose-950">Handshake Rejected</p>
+                          <p className="font-normal text-rose-800">{testMessage}</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
 
