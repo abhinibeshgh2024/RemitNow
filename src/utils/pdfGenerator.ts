@@ -9,7 +9,8 @@ import { Payment, Vendor } from '../types';
 export function generateRemittancePDF(
   payment: Payment,
   vendor: Vendor,
-  outputMode: 'download' | 'bloburl' | 'base64' = 'bloburl'
+  outputMode: 'download' | 'bloburl' | 'base64' = 'bloburl',
+  senderEmail?: string
 ): string | null {
   // A4 size: 210mm x 297mm
   const doc = new jsPDF({
@@ -21,6 +22,8 @@ export function generateRemittancePDF(
   // Fonts and styling configurations
   const marginX = 15;
   let currentY = 15;
+
+  const resolvedSenderEmail = senderEmail || payment.senderEmail || 'operations@remitflow.co';
 
   // 1. Header Banner Panel (Slate-800 background)
   doc.setFillColor(30, 41, 59); // Deep Slate
@@ -34,7 +37,7 @@ export function generateRemittancePDF(
   doc.setFont('Helvetica', 'normal');
   doc.setFontSize(9);
   doc.text('Accounts Payable', marginX + 135, currentY + 11);
-  doc.text('joseon359@gmail.com', marginX + 135, currentY + 16);
+  doc.text(resolvedSenderEmail, marginX + 135, currentY + 16);
 
   currentY += 34; // Advance cursor past header
 
@@ -52,7 +55,7 @@ export function generateRemittancePDF(
 
   // Left side - Issuer
   doc.text('Accounts Operations', marginX, currentY);
-  doc.text('Email: joseon359@gmail.com', marginX, currentY + 4.5);
+  doc.text(`Email: ${resolvedSenderEmail}`, marginX, currentY + 4.5);
   doc.text('Status: Cleared via Bank', marginX, currentY + 9);
 
   // Right side - Vendor Payee Details
@@ -168,7 +171,7 @@ export function generateRemittancePDF(
   doc.setFont('Helvetica', 'normal');
   doc.setFontSize(7.5);
   doc.text('Vendor Remittance & Payment Advice Dispatcher Platform - Confirmed Banking Settlement Document', marginX, footerY + 5);
-  doc.text('This is an automated securely compiled financial advice statement. For queries, contact joseon359@gmail.com.', marginX, footerY + 9);
+  doc.text(`This is an automated securely compiled financial advice statement. For queries, contact ${resolvedSenderEmail}.`, marginX, footerY + 9);
 
   if (outputMode === 'download') {
     doc.save(`Remittance_Advice_${payment.invoiceNumber}.pdf`);

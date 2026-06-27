@@ -14,6 +14,7 @@ interface TemplateManagerProps {
   onResetTemplate: () => void;
   sampleVendor?: Vendor;
   samplePayment?: Payment;
+  currentUserEmail?: string;
 }
 
 export default function TemplateManager({
@@ -22,6 +23,7 @@ export default function TemplateManager({
   onResetTemplate,
   sampleVendor,
   samplePayment,
+  currentUserEmail,
 }: TemplateManagerProps) {
   const [subject, setSubject] = useState(template.subject);
   const [body, setBody] = useState(template.body);
@@ -34,7 +36,7 @@ export default function TemplateManager({
     { key: '{InvoiceNumber}', desc: 'The reference number of the payment invoice (e.g. INV-2026-77A)' },
     { key: '{Amount}', desc: 'The cleared total formatted with currency (e.g. $12,450.00)' },
     { key: '{UTRNumber}', desc: 'The bank Unique Transaction Reference code (e.g. UTR-ACME-9081)' },
-    { key: '{SenderEmail}', desc: 'The accounts email originating the dispatch (joseon359@gmail.com)' },
+    { key: '{SenderEmail}', desc: `The accounts email originating the dispatch (${currentUserEmail || 'your-email@example.com'})` },
   ];
 
   // Substitute brackets to create live compiled preview
@@ -56,7 +58,7 @@ export default function TemplateManager({
     result = result.replace(/{InvoiceNumber}/g, pInv);
     result = result.replace(/{Amount}/g, formattedAmount);
     result = result.replace(/{UTRNumber}/g, pUtr);
-    result = result.replace(/{SenderEmail}/g, 'joseon359@gmail.com');
+    result = result.replace(/{SenderEmail}/g, currentUserEmail || 'your-email@example.com');
     return result;
   };
 
@@ -208,7 +210,7 @@ export default function TemplateManager({
               <div className="space-y-2 bg-slate-800/40 p-4 rounded-2xl border border-slate-800 text-xs font-mono leading-relaxed">
                 <div>
                   <span className="text-slate-500">From: </span>
-                  <span className="text-indigo-400 font-semibold">joseon359@gmail.com</span>
+                  <span className="text-indigo-400 font-semibold">{currentUserEmail || 'your-email@example.com'}</span>
                 </div>
                 <div>
                   <span className="text-slate-500">To:   </span>

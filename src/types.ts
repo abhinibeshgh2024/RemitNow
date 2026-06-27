@@ -45,7 +45,7 @@ export interface SmtpConfig {
 
 export interface DeliveryEngineConfig {
   activeEngine: DeliveryEngineType;
-  senderEmail: string; // joseon359@gmail.com
+  senderEmail: string;
   autoRetryLimit: number;
   retryDelaySeconds: number; // For demo/offline visual countdowns
   smtp?: SmtpConfig;

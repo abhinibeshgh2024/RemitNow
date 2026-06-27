@@ -58,13 +58,7 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
           onLoginSuccess({ email: matchedUser.email, name: matchedUser.name });
         }, 1200);
       } else {
-        // Fail-safe default user
-        if (email.toLowerCase() === 'joseon359@gmail.com' && password === 'joseon123') {
-          const defaultUser = { email: 'joseon359@gmail.com', name: 'Joseon' };
-          onLoginSuccess(defaultUser);
-          return;
-        }
-        setError('Invalid email or password combination. Try "joseon359@gmail.com" with password "joseon123" or sign up!');
+        setError('Invalid email or password combination. Please sign up if you do not have an account!');
       }
     } else {
       // Sign Up / Create Account
@@ -84,13 +78,6 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
         onLoginSuccess({ email, name });
       }, 1500);
     }
-  };
-
-  const handleDemoBypass = () => {
-    onLoginSuccess({
-      email: 'joseon359@gmail.com',
-      name: 'Joseon (Demo User)',
-    });
   };
 
   return (
@@ -245,30 +232,11 @@ export default function AuthScreen({ onLoginSuccess }: AuthScreenProps) {
               <ArrowRight className="h-4 w-4" />
             </button>
           </form>
-
-          {/* Quick Demo bypass options */}
-          <div className="relative flex py-1 items-center">
-            <div className="flex-grow border-t border-slate-800"></div>
-            <span className="flex-shrink mx-3 text-[10px] text-slate-500 font-bold uppercase tracking-widest">OR</span>
-            <div className="flex-grow border-t border-slate-800"></div>
-          </div>
-
-          <button
-            onClick={handleDemoBypass}
-            className="w-full py-2.5 bg-slate-850 hover:bg-slate-800 text-slate-300 border border-slate-800 hover:text-white rounded-xl text-xs font-semibold uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer"
-          >
-            <span>Explore with Demo Sandbox</span>
-          </button>
         </div>
 
         {/* Footer info */}
         <div className="text-center mt-6 text-[11px] text-slate-500 space-y-1">
           <p>© {new Date().getFullYear()} RemitFlow. Fully local & standalone sandbox execution.</p>
-          {isLogin && (
-            <p className="font-mono text-slate-600">
-              Demo credentials: <span className="text-indigo-400">joseon359@gmail.com</span> / <span className="text-indigo-400">joseon123</span>
-            </p>
-          )}
         </div>
       </div>
     </div>

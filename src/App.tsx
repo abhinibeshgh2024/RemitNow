@@ -87,7 +87,7 @@ export default function App() {
     const items: Vendor[] = saved ? JSON.parse(saved) : DEFAULT_VENDORS;
     return items.map((v) => ({
       ...v,
-      createdBy: v.createdBy || 'joseon359@gmail.com',
+      createdBy: v.createdBy || 'operations@remitflow.co',
     }));
   });
 
@@ -96,7 +96,7 @@ export default function App() {
     const items: Payment[] = saved ? JSON.parse(saved) : DEFAULT_PAYMENTS;
     return items.map((p) => ({
       ...p,
-      createdBy: p.createdBy || 'joseon359@gmail.com',
+      createdBy: p.createdBy || 'operations@remitflow.co',
     }));
   });
 
@@ -231,7 +231,7 @@ export default function App() {
       return;
     }
 
-    const resolvedSender = senderEmailOverride || payment.senderEmail || configRef.current.senderEmail || 'joseon359@gmail.com';
+    const resolvedSender = senderEmailOverride || payment.senderEmail || configRef.current.senderEmail || currentUser?.email || 'operations@remitflow.co';
 
     // 2. Transition Payment to 'In Progress' and set sender email
     updatePaymentStatus(payment.id, 'In Progress', undefined, undefined, resolvedSender);
@@ -261,7 +261,7 @@ export default function App() {
           status: 'Success',
           feedback: 'Native mail app successfully initiated with pre-filled headers. PDF generated and download completed.',
           retryAttempt: attemptIndex,
-          createdBy: currentUser?.email || 'joseon359@gmail.com',
+          createdBy: currentUser?.email || 'operations@remitflow.co',
         };
 
         setLogs((current) => [...current, newLog]);
@@ -320,7 +320,7 @@ export default function App() {
         status: 'Success',
         feedback: resData.message || 'Transmitted successfully.',
         retryAttempt: attemptIndex,
-        createdBy: currentUser?.email || 'joseon359@gmail.com',
+        createdBy: currentUser?.email || 'operations@remitflow.co',
       };
 
       setLogs((current) => [...current, successLog]);
@@ -350,12 +350,12 @@ export default function App() {
       vendorCode: payment.vendorCode,
       vendorName: vendor ? vendor.name : 'Unknown Recipient',
       recipientEmail: vendor ? vendor.email : 'unresolved@vendor.net',
-      senderEmail: currentUser?.email || 'joseon359@gmail.com',
+      senderEmail: currentUser?.email || 'operations@remitflow.co',
       engine: configRef.current.activeEngine,
       status: 'Failed',
       feedback: errorMsg,
       retryAttempt: attemptIndex,
-      createdBy: currentUser?.email || 'joseon359@gmail.com',
+      createdBy: currentUser?.email || 'operations@remitflow.co',
     };
 
     setLogs((current) => [...current, failLog]);
@@ -395,12 +395,12 @@ export default function App() {
         vendorCode: payment.vendorCode,
         vendorName: vendor ? vendor.name : 'Unknown Recipient',
         recipientEmail: vendor ? vendor.email : 'unresolved@vendor.net',
-        senderEmail: currentUser?.email || 'joseon359@gmail.com',
+        senderEmail: currentUser?.email || 'operations@remitflow.co',
         engine: configRef.current.activeEngine,
         status: 'Failed',
         feedback: `Terminal Exhaustion: Failed after compiling ${maxLimit} attempts. Enforced halt.`,
         retryAttempt: attemptIndex,
-        createdBy: currentUser?.email || 'joseon359@gmail.com',
+        createdBy: currentUser?.email || 'operations@remitflow.co',
       };
       setLogs((current) => [...current, termLog]);
     }
@@ -437,7 +437,7 @@ export default function App() {
     result = result.replace(/{InvoiceNumber}/g, payment.invoiceNumber);
     result = result.replace(/{Amount}/g, formattedAmount);
     result = result.replace(/{UTRNumber}/g, payment.utrNumber);
-    result = result.replace(/{SenderEmail}/g, senderEmailOverride || payment.senderEmail || currentUser?.email || 'joseon359@gmail.com');
+    result = result.replace(/{SenderEmail}/g, senderEmailOverride || payment.senderEmail || currentUser?.email || 'operations@remitflow.co');
     return result;
   };
 
@@ -508,7 +508,7 @@ export default function App() {
 
   // --- 11. Database Resets / Seeds ---
   const handleResetSystem = () => {
-    const creatorEmail = currentUser?.email || 'joseon359@gmail.com';
+    const creatorEmail = currentUser?.email || 'operations@remitflow.co';
     const seededVendors = DEFAULT_VENDORS.map((v) => ({ ...v, createdBy: creatorEmail }));
     const seededPayments = DEFAULT_PAYMENTS.map((p) => ({ ...p, createdBy: creatorEmail }));
 
@@ -531,7 +531,7 @@ export default function App() {
 
   // CRUD events matching
   const handleAddVendor = (v: Vendor) => {
-    const creatorEmail = currentUser?.email || 'joseon359@gmail.com';
+    const creatorEmail = currentUser?.email || 'operations@remitflow.co';
     const exists = vendors.some((item) => item.code === v.code && item.createdBy === creatorEmail);
     if (exists) return `Vendor Code "${v.code}" is already registered.`;
     
@@ -544,7 +544,7 @@ export default function App() {
   };
 
   const handleUpdateVendor = (oldCode: string, v: Vendor) => {
-    const creatorEmail = currentUser?.email || 'joseon359@gmail.com';
+    const creatorEmail = currentUser?.email || 'operations@remitflow.co';
     setVendors((curr) =>
       curr.map((item) =>
         item.code === oldCode && item.createdBy === creatorEmail
@@ -556,14 +556,14 @@ export default function App() {
   };
 
   const handleDeleteVendor = (code: string) => {
-    const creatorEmail = currentUser?.email || 'joseon359@gmail.com';
+    const creatorEmail = currentUser?.email || 'operations@remitflow.co';
     setVendors((curr) =>
       curr.filter((item) => !(item.code === code && item.createdBy === creatorEmail))
     );
   };
 
   const handleAddPayment = (p: Payment) => {
-    const creatorEmail = currentUser?.email || 'joseon359@gmail.com';
+    const creatorEmail = currentUser?.email || 'operations@remitflow.co';
     const exists = payments.some((item) => item.invoiceNumber === p.invoiceNumber && item.createdBy === creatorEmail);
     if (exists) return `Invoice Reference "${p.invoiceNumber}" is already registered.`;
     
@@ -576,7 +576,7 @@ export default function App() {
   };
 
   const handleDeletePayment = (id: string) => {
-    const creatorEmail = currentUser?.email || 'joseon359@gmail.com';
+    const creatorEmail = currentUser?.email || 'operations@remitflow.co';
     setPayments((curr) =>
       curr.filter((p) => !(p.id === id && p.createdBy === creatorEmail))
     );
@@ -584,28 +584,28 @@ export default function App() {
   };
 
   const handleClearPayments = () => {
-    const creatorEmail = currentUser?.email || 'joseon359@gmail.com';
+    const creatorEmail = currentUser?.email || 'operations@remitflow.co';
     setPayments((curr) => curr.filter((p) => p.createdBy !== creatorEmail));
   };
 
   const handleClearLogs = () => {
-    const creatorEmail = currentUser?.email || 'joseon359@gmail.com';
+    const creatorEmail = currentUser?.email || 'operations@remitflow.co';
     setLogs((curr) => curr.filter((l) => l.createdBy !== creatorEmail && l.senderEmail !== creatorEmail));
   };
 
   // --- 12. Tenant Filtered Lists ---
   const visibleVendors = useMemo(() => {
-    const creatorEmail = currentUser?.email || 'joseon359@gmail.com';
+    const creatorEmail = currentUser?.email || 'operations@remitflow.co';
     return vendors.filter((v) => v.createdBy === creatorEmail);
   }, [vendors, currentUser]);
 
   const visiblePayments = useMemo(() => {
-    const creatorEmail = currentUser?.email || 'joseon359@gmail.com';
+    const creatorEmail = currentUser?.email || 'operations@remitflow.co';
     return payments.filter((p) => p.createdBy === creatorEmail);
   }, [payments, currentUser]);
 
   const visibleLogs = useMemo(() => {
-    const creatorEmail = currentUser?.email || 'joseon359@gmail.com';
+    const creatorEmail = currentUser?.email || 'operations@remitflow.co';
     return logs.filter((l) => l.createdBy === creatorEmail || l.senderEmail === creatorEmail);
   }, [logs, currentUser]);
 
@@ -655,7 +655,7 @@ export default function App() {
           {/* Quick Enforced Sender Indicator */}
           <div className="hidden lg:flex items-center gap-2 bg-slate-100 px-4 py-2 rounded-full border border-slate-200 text-xs font-medium text-slate-700">
             <Lock className="h-3.5 w-3.5 text-slate-500" />
-            <span>Operator: <strong className="font-mono text-slate-900">{currentUser?.email || 'joseon359@gmail.com'}</strong></span>
+            <span>Operator: <strong className="font-mono text-slate-900">{currentUser?.email || 'operations@remitflow.co'}</strong></span>
           </div>
         </div>
       </header>
@@ -738,8 +738,8 @@ export default function App() {
             <div className="p-5 bg-slate-950 border-t border-slate-800 mt-auto flex flex-col gap-2.5">
               <div>
                 <div className="text-[10px] text-slate-500 uppercase font-bold tracking-widest mb-0.5">Authenticated Operator</div>
-                <div className="text-xs text-slate-100 font-bold truncate">{currentUser?.name || 'Joseon'}</div>
-                <div className="text-[10px] text-slate-400 truncate font-mono mt-0.5">{currentUser?.email || 'joseon359@gmail.com'}</div>
+                <div className="text-xs text-slate-100 font-bold truncate">{currentUser?.name || 'Operator'}</div>
+                <div className="text-[10px] text-slate-400 truncate font-mono mt-0.5">{currentUser?.email || 'operations@remitflow.co'}</div>
               </div>
               <button
                 onClick={handleLogOut}
@@ -939,6 +939,7 @@ export default function App() {
               <RemittanceIngestion
                 payments={visiblePayments}
                 vendors={visibleVendors}
+                currentUserEmail={currentUser?.email}
                 onAddPayment={handleAddPayment}
                 onDeletePayment={handleDeletePayment}
                 onClearPayments={handleClearPayments}
@@ -957,6 +958,7 @@ export default function App() {
                 onResetTemplate={() => setTemplate(DEFAULT_TEMPLATE)}
                 sampleVendor={visibleVendors[0]}
                 samplePayment={visiblePayments[0]}
+                currentUserEmail={currentUser?.email}
               />
             </div>
           )}
@@ -998,7 +1000,7 @@ export default function App() {
       <footer className="mt-auto py-8 bg-white border-t border-slate-200/60 text-center text-xs text-slate-400" id="app-footer">
         <div className="max-w-7xl mx-auto px-4 flex flex-col md:flex-row items-center justify-between gap-4">
           <p className="font-medium text-[11px] leading-relaxed">
-            © 2026 Vendor Remittance & Payment Advice Dispatcher Platform. Bound to <strong className="text-slate-600 font-mono">{currentUser?.email || 'joseon359@gmail.com'}</strong>.
+            © 2026 Vendor Remittance & Payment Advice Dispatcher Platform. Bound to <strong className="text-slate-600 font-mono">{currentUser?.email || 'operations@remitflow.co'}</strong>.
           </p>
           <p className="text-[10px] text-slate-400 font-mono">
             Crafted for accounts payable automation • Sandboxed SMTP & transactional APIs v3 proxies integrated.
@@ -1011,9 +1013,9 @@ export default function App() {
         isOpen={isResetConfirmOpen}
         onClose={() => setIsResetConfirmOpen(false)}
         onConfirm={handleResetSystem}
-        title="Reset & Seed Database"
-        message="Are you sure you want to restore all settings and tables to original factory defaults? This erases all newly registered vendors, payments, customized template brackets, and communication log histories, and re-seeds standard mock partners."
-        confirmText="Confirm Re-seed"
+        title="Reset System Database"
+        message="Are you sure you want to restore all settings and databases to a blank state? This erases all registered vendors, payments, customized template brackets, and communication log histories."
+        confirmText="Confirm Reset"
         cancelText="Cancel"
         isDestructive={true}
       />

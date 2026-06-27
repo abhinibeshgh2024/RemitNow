@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   FileText,
   Search,
@@ -30,6 +30,7 @@ import ConfirmationModal from './Modal';
 interface RemittanceIngestionProps {
   payments: Payment[];
   vendors: Vendor[];
+  currentUserEmail?: string;
   onAddPayment: (p: Payment) => boolean | string;
   onDeletePayment: (id: string) => void;
   onClearPayments: () => void;
@@ -47,6 +48,7 @@ interface RemittanceIngestionProps {
 export default function RemittanceIngestion({
   payments,
   vendors,
+  currentUserEmail,
   onAddPayment,
   onDeletePayment,
   onClearPayments,
@@ -80,7 +82,13 @@ export default function RemittanceIngestion({
     isOpen: false,
     type: 'single',
   });
-  const [selectedSenderEmail, setSelectedSenderEmail] = useState('joseon359@gmail.com');
+  const [selectedSenderEmail, setSelectedSenderEmail] = useState(currentUserEmail || 'operations@remitflow.co');
+
+  useEffect(() => {
+    if (currentUserEmail) {
+      setSelectedSenderEmail(currentUserEmail);
+    }
+  }, [currentUserEmail]);
 
   const triggerSingleDispatch = (payment: Payment) => {
     setDispatchSelection({
@@ -815,7 +823,7 @@ export default function RemittanceIngestion({
               <div className="space-y-2.5">
                 {[
                   {
-                    email: 'joseon359@gmail.com',
+                    email: currentUserEmail || 'operations@remitflow.co',
                     label: 'Primary RemitFlow Account',
                     desc: 'Default high-delivery corporate finance address.',
                   },
