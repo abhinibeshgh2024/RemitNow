@@ -284,7 +284,7 @@ async function startServer() {
 
   // API 4: Verify and test connection to email service provider API Key
   app.post('/api/test-api-key', async (req, res) => {
-    const { provider, apiKey, senderEmail, senderName } = req.body;
+    const { provider, apiKey, senderEmail, senderName, testRecipient } = req.body;
 
     if (!provider || !apiKey) {
       return res.status(400).json({
@@ -294,8 +294,40 @@ async function startServer() {
     }
 
     try {
+      const recipient = testRecipient || 'infostarmedia133@gmail.com';
+
       if (provider === 'Resend') {
         const testSender = senderEmail || 'onboarding@resend.dev';
+
+        // 1. Try a lightweight GET domains call first to verify authentication state
+        try {
+          console.log('[Resend Validation] Attempting GET /domains authentication check...');
+          const getCheck = await fetch('https://api.resend.com/domains', {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${apiKey}`,
+            },
+          });
+
+          if (getCheck.status === 200) {
+            return res.json({
+              success: true,
+              message: 'Successfully authenticated with Resend API! API Key is verified and ready for billing dispatches.',
+            });
+          } else if (getCheck.status === 401) {
+            return res.status(401).json({
+              success: false,
+              error: 'Resend API Key authentication failed (401 Unauthorized). Please check the API Key.',
+            });
+          } else {
+            console.log(`[Resend Validation] GET /domains returned status ${getCheck.status}. Proceeding to email dispatch check...`);
+          }
+        } catch (getErr) {
+          console.warn('[Resend Validation] GET /domains pre-check failed. Proceeding with email test...', getErr);
+        }
+
+        // 2. Fallback to sending a verification email
+        console.log(`[Resend Validation] Attempting test email from ${testSender} to ${recipient}...`);
         const response = await fetch('https://api.resend.com/emails', {
           method: 'POST',
           headers: {
@@ -304,7 +336,7 @@ async function startServer() {
           },
           body: JSON.stringify({
             from: `"${senderName || 'RemitFlow Handshake'}" <${testSender}>`,
-            to: [testSender],
+            to: [recipient],
             subject: 'SMTP Bypass API Key Verification Handshake',
             html: '<p>Your API Key has been successfully verified for RemitFlow automated billing dispatches!</p>',
           }),
@@ -322,10 +354,40 @@ async function startServer() {
 
         return res.json({
           success: true,
-          message: `Successfully authenticated with Resend API! Verification email dispatched to ${testSender}.`,
+          message: `Successfully authenticated with Resend API! Verification email dispatched to ${recipient}.`,
         });
       } else if (provider === 'SendGrid') {
         const testSender = senderEmail || 'verified-sender@yourdomain.com';
+
+        // 1. Try a lightweight GET scopes call first to verify authentication state
+        try {
+          console.log('[SendGrid Validation] Attempting GET /scopes authentication check...');
+          const getCheck = await fetch('https://api.sendgrid.com/v3/scopes', {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${apiKey}`,
+            },
+          });
+
+          if (getCheck.status === 200) {
+            return res.json({
+              success: true,
+              message: 'Successfully authenticated with SendGrid API! API Key is verified and ready for billing dispatches.',
+            });
+          } else if (getCheck.status === 401) {
+            return res.status(401).json({
+              success: false,
+              error: 'SendGrid API Key authentication failed (401 Unauthorized). Please check the API Key.',
+            });
+          } else {
+            console.log(`[SendGrid Validation] GET /scopes returned status ${getCheck.status}. Proceeding to email dispatch check...`);
+          }
+        } catch (getErr) {
+          console.warn('[SendGrid Validation] GET /scopes pre-check failed. Proceeding with email test...', getErr);
+        }
+
+        // 2. Fallback to sending a verification email
+        console.log(`[SendGrid Validation] Attempting test email from ${testSender} to ${recipient}...`);
         const response = await fetch('https://api.sendgrid.com/v3/mail/send', {
           method: 'POST',
           headers: {
@@ -333,7 +395,7 @@ async function startServer() {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            personalizations: [{ to: [{ email: testSender }] }],
+            personalizations: [{ to: [{ email: recipient }] }],
             from: { email: testSender, name: senderName || 'RemitFlow Handshake' },
             subject: 'SMTP Bypass API Key Verification Handshake',
             content: [{ type: 'text/html', value: '<p>Your API Key has been successfully verified for RemitFlow automated billing dispatches!</p>' }],
@@ -352,7 +414,7 @@ async function startServer() {
 
         return res.json({
           success: true,
-          message: `Successfully authenticated with SendGrid API! Verification email dispatched to ${testSender}.`,
+          message: `Successfully authenticated with SendGrid API! Verification email dispatched to ${recipient}.`,
         });
       } else {
         // Sandbox/Mock Bypass

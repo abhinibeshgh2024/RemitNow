@@ -104,11 +104,26 @@ export default function EngineConfig({
     setApiTestStatus('testing');
     setApiTestMessage('');
     try {
+      // Safely extract active user email from session storage to use as the test recipient address
+      let testRecipient = 'infostarmedia133@gmail.com';
+      try {
+        const savedUserStr = localStorage.getItem('remit_current_user');
+        if (savedUserStr) {
+          const userObj = JSON.parse(savedUserStr);
+          if (userObj && userObj.email) {
+            testRecipient = userObj.email;
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to parse current user email for testing:', e);
+      }
+
       const payload = {
         provider: apiProvider,
         apiKey: apiKey,
         senderEmail: apiSenderEmail || config.senderEmail,
         senderName: apiSenderName,
+        testRecipient: testRecipient,
       };
 
       const res = await fetch('/api/test-api-key', {
