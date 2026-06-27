@@ -289,6 +289,7 @@ export default function App() {
         invoiceNumber: payment.invoiceNumber,
         senderEmail: resolvedSender,
         smtpConfig: configRef.current.smtp?.isEnabled ? configRef.current.smtp : undefined,
+        apiKeyConfig: configRef.current.apiKeyConfig?.isEnabled ? configRef.current.apiKeyConfig : undefined,
         simulateFail: configRef.current.activeEngine === 'Sandbox' && simulateSandboxFailRef.current,
       };
 

@@ -43,12 +43,21 @@ export interface SmtpConfig {
   isEnabled: boolean;
 }
 
+export interface ApiKeyConfig {
+  provider: 'Resend' | 'SendGrid' | 'Sandbox/Mock Bypass';
+  apiKey: string;
+  senderEmail: string;
+  senderName: string;
+  isEnabled: boolean;
+}
+
 export interface DeliveryEngineConfig {
   activeEngine: DeliveryEngineType;
   senderEmail: string;
   autoRetryLimit: number;
   retryDelaySeconds: number; // For demo/offline visual countdowns
   smtp?: SmtpConfig;
+  apiKeyConfig?: ApiKeyConfig;
 }
 
 export interface EmailTemplate {

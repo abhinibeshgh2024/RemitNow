@@ -39,9 +39,22 @@ export default function EngineConfig({
   const [showSmtpPass, setShowSmtpPass] = useState(false);
   const [showAdvancedSmtp, setShowAdvancedSmtp] = useState(config.smtp?.isEnabled || false);
 
+  // API Key Settings State
+  const [apiProvider, setApiProvider] = useState<'Resend' | 'SendGrid' | 'Sandbox/Mock Bypass'>(config.apiKeyConfig?.provider || 'Resend');
+  const [apiKey, setApiKey] = useState(config.apiKeyConfig?.apiKey || '');
+  const [apiSenderEmail, setApiSenderEmail] = useState(config.apiKeyConfig?.senderEmail || '');
+  const [apiSenderName, setApiSenderName] = useState(config.apiKeyConfig?.senderName || 'RemitFlow Advice Dispatcher');
+  const [apiEnabled, setApiEnabled] = useState(config.apiKeyConfig?.isEnabled || false);
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [showAdvancedApi, setShowAdvancedApi] = useState(config.apiKeyConfig?.isEnabled || false);
+
   // Diagnostic SMTP testing state
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'failed'>('idle');
   const [testMessage, setTestMessage] = useState('');
+
+  // Diagnostic API Key testing state
+  const [apiTestStatus, setApiTestStatus] = useState<'idle' | 'testing' | 'success' | 'failed'>('idle');
+  const [apiTestMessage, setApiTestMessage] = useState('');
 
   const handleTestSmtp = async () => {
     setTestStatus('testing');
@@ -87,6 +100,46 @@ export default function EngineConfig({
     }
   };
 
+  const handleTestApiKey = async () => {
+    setApiTestStatus('testing');
+    setApiTestMessage('');
+    try {
+      const payload = {
+        provider: apiProvider,
+        apiKey: apiKey,
+        senderEmail: apiSenderEmail || config.senderEmail,
+        senderName: apiSenderName,
+      };
+
+      const res = await fetch('/api/test-api-key', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      let data: any;
+      const contentType = res.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        data = await res.json();
+      } else {
+        const text = await res.text();
+        const snippet = text.length > 250 ? text.substring(0, 250) + '...' : text;
+        throw new Error(`The server returned an unexpected response format (${res.status}): ${snippet}`);
+      }
+
+      if (res.ok && data.success) {
+        setApiTestStatus('success');
+        setApiTestMessage(data.message || 'API Key verified successfully!');
+      } else {
+        setApiTestStatus('failed');
+        setApiTestMessage(data.error || 'API Key verification failed.');
+      }
+    } catch (err: any) {
+      setApiTestStatus('failed');
+      setApiTestMessage(err.message || 'Express gateway timeout or network failure.');
+    }
+  };
+
   useEffect(() => {
     setActiveEngine(config.activeEngine);
     setAutoRetryLimit(config.autoRetryLimit);
@@ -100,14 +153,21 @@ export default function EngineConfig({
       setSmtpSenderName(config.smtp.senderName || 'RemitFlow Advice Dispatcher');
       setSmtpEnabled(config.smtp.isEnabled || false);
     }
+    if (config.apiKeyConfig) {
+      setApiProvider(config.apiKeyConfig.provider || 'Resend');
+      setApiKey(config.apiKeyConfig.apiKey || '');
+      setApiSenderEmail(config.apiKeyConfig.senderEmail || '');
+      setApiSenderName(config.apiKeyConfig.senderName || 'RemitFlow Advice Dispatcher');
+      setApiEnabled(config.apiKeyConfig.isEnabled || false);
+    }
   }, [config]);
 
   const engines: { id: DeliveryEngineType; title: string; desc: string; badging: string }[] = [
     {
       id: 'Sandbox',
       title: 'Direct Background Send',
-      desc: 'Transmits advice files silently. When SMTP Connection is Enabled, it fires real outgoing emails with A4 PDF attachments instantly to vendors.',
-      badging: 'Real SMTP or Sandbox',
+      desc: 'Transmits advice files silently. When SMTP or modern API Delivery is configured and enabled, it fires real outgoing emails with A4 PDF attachments instantly.',
+      badging: 'Real Outbox, API, or Sandbox',
     },
     {
       id: 'Native Share',
@@ -131,6 +191,13 @@ export default function EngineConfig({
         pass: smtpPass,
         senderName: smtpSenderName,
         isEnabled: smtpEnabled,
+      },
+      apiKeyConfig: {
+        provider: apiProvider,
+        apiKey: apiKey,
+        senderEmail: apiSenderEmail,
+        senderName: apiSenderName,
+        isEnabled: apiEnabled,
       },
     });
     setIsSaved(true);
@@ -230,13 +297,20 @@ export default function EngineConfig({
               </div>
 
               {/* Collapsible Trigger button for advanced manual SMTP override */}
-              <div className="pt-2">
+              <div className="pt-2 flex flex-col sm:flex-row gap-3">
                 <button
                   type="button"
                   onClick={() => setShowAdvancedSmtp(!showAdvancedSmtp)}
                   className="text-xs font-semibold text-slate-500 hover:text-indigo-600 flex items-center gap-1.5 transition-colors cursor-pointer select-none"
                 >
                   <span>{showAdvancedSmtp ? 'Hide Advanced SMTP Configuration (Optional) ▴' : 'Configure Custom SMTP Mail Server (Optional) ▾'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowAdvancedApi(!showAdvancedApi)}
+                  className="text-xs font-semibold text-slate-500 hover:text-indigo-600 flex items-center gap-1.5 transition-colors cursor-pointer select-none sm:border-l sm:border-slate-200 sm:pl-3"
+                >
+                  <span>{showAdvancedApi ? 'Hide API Key SMTP Bypass (Optional) ▴' : 'Configure API Key SMTP Bypass (Optional) ▾'}</span>
                 </button>
               </div>
             </div>
@@ -418,6 +492,178 @@ export default function EngineConfig({
                         <div className="space-y-1">
                           <p className="font-black uppercase tracking-wide text-rose-950">Handshake Rejected</p>
                           <p className="font-normal text-rose-800">{testMessage}</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {showAdvancedApi && (
+              <div className="pt-4 border-t border-slate-100 space-y-5" id="advanced-api-options">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest font-mono">Modern API Outbound (Bypass)</span>
+                  <div className="flex items-center gap-2">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider cursor-pointer" htmlFor="api-toggle">
+                      {apiEnabled ? 'API Bypass Active' : 'Disabled'}
+                    </label>
+                    <button
+                      id="api-toggle"
+                      onClick={() => {
+                        const nextVal = !apiEnabled;
+                        setApiEnabled(nextVal);
+                        if (nextVal) {
+                          // Disable SMTP if API key is active to avoid confusion
+                          setSmtpEnabled(false);
+                        }
+                      }}
+                      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                        apiEnabled ? 'bg-indigo-600' : 'bg-slate-300'
+                      }`}
+                    >
+                      <span
+                        className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                          apiEnabled ? 'translate-x-4' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                </div>
+
+                <p className="text-[11px] text-slate-500 leading-normal">
+                  If SMTP servers are experiencing connection/handshake errors, route all transactional batch email dispatches directly via a modern HTTPS provider API.
+                </p>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4" id="api-inputs-grid">
+                  {/* Provider Selection */}
+                  <div className="space-y-1.5 col-span-2">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                      API Provider
+                    </label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {['Resend', 'SendGrid', 'Sandbox/Mock Bypass'].map((providerName) => {
+                        const isSelected = apiProvider === providerName;
+                        return (
+                          <button
+                            key={providerName}
+                            type="button"
+                            onClick={() => setApiProvider(providerName as any)}
+                            disabled={!apiEnabled}
+                            className={`px-3 py-2 text-xs font-semibold rounded-lg border transition-all text-center cursor-pointer ${
+                              isSelected
+                                ? 'bg-indigo-50 border-indigo-600 text-indigo-700 font-bold'
+                                : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100 disabled:opacity-50'
+                            }`}
+                          >
+                            {providerName}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* API Key */}
+                  <div className="space-y-1.5 col-span-2">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                      {apiProvider} API Key
+                    </label>
+                    <div className="relative">
+                      <Lock className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                      <input
+                        type={showApiKey ? 'text' : 'password'}
+                        value={apiKey}
+                        onChange={(e) => setApiKey(e.target.value)}
+                        placeholder={apiProvider === 'Sandbox/Mock Bypass' ? 'e.g. mock_key_bypass' : 're_12345678 or SG.xxxxxxxx'}
+                        className="w-full bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:bg-white rounded-xl pl-9 pr-10 py-2 text-xs font-semibold placeholder-slate-400 font-mono text-slate-800 focus:outline-none"
+                        disabled={!apiEnabled}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowApiKey(!showApiKey)}
+                        className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 disabled:opacity-50"
+                        disabled={!apiEnabled}
+                      >
+                        {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Verified Sender Email */}
+                  <div className="space-y-1.5 col-span-2 md:col-span-1">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                      Verified Sender Email
+                    </label>
+                    <input
+                      type="email"
+                      value={apiSenderEmail}
+                      onChange={(e) => setApiSenderEmail(e.target.value)}
+                      placeholder="e.g. onboarding@resend.dev"
+                      className="w-full bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:bg-white rounded-xl px-3.5 py-2 text-xs font-semibold placeholder-slate-400 font-mono text-slate-800 focus:outline-none"
+                      disabled={!apiEnabled}
+                    />
+                  </div>
+
+                  {/* Sender Name Alias */}
+                  <div className="space-y-1.5 col-span-2 md:col-span-1">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                      Sender Name Alias
+                    </label>
+                    <input
+                      type="text"
+                      value={apiSenderName}
+                      onChange={(e) => setApiSenderName(e.target.value)}
+                      placeholder="RemitFlow Advice Dispatcher"
+                      className="w-full bg-slate-50 border border-slate-200 focus:border-indigo-500 focus:bg-white rounded-xl px-3.5 py-2 text-xs font-semibold placeholder-slate-400 text-slate-800 focus:outline-none"
+                      disabled={!apiEnabled}
+                    />
+                  </div>
+                </div>
+
+                {/* Hint Box */}
+                <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-250 flex gap-2.5 text-xs text-slate-600">
+                  <Info className="h-4.5 w-4.5 text-indigo-500 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <p className="font-bold">Domain verification notes:</p>
+                    <p className="text-[11px] text-slate-500 leading-normal">
+                      For providers like Resend or SendGrid, the <strong>Verified Sender Email</strong> must match a domain you have fully verified with DKIM records in your provider's dashboard, otherwise outgoing bulk dispatches will fail.
+                    </p>
+                  </div>
+                </div>
+
+                {/* API Key Connection Diagnostics */}
+                <div className="pt-4 border-t border-slate-100 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest font-mono">
+                      API Handshake Diagnostics
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleTestApiKey}
+                      disabled={apiTestStatus === 'testing' || !apiEnabled || !apiKey}
+                      className="px-3.5 py-1.5 bg-indigo-600 text-white text-[11px] font-extrabold uppercase tracking-widest rounded-lg shadow-sm hover:bg-indigo-700 disabled:bg-slate-200 disabled:text-slate-400 transition-colors cursor-pointer"
+                    >
+                      {apiTestStatus === 'testing' ? 'Handshaking...' : 'Verify Outbound Key'}
+                    </button>
+                  </div>
+
+                  {apiTestStatus !== 'idle' && (
+                    <div
+                      className={`p-3.5 rounded-xl border text-xs leading-normal transition-all ${
+                        apiTestStatus === 'success'
+                          ? 'bg-emerald-50 border-emerald-200 text-emerald-800 font-semibold'
+                          : 'bg-rose-50 border-rose-200 text-rose-800 font-mono text-[11px]'
+                      }`}
+                    >
+                      {apiTestStatus === 'success' ? (
+                        <p className="flex items-center gap-1.5">
+                          <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                          <span>{apiTestMessage}</span>
+                        </p>
+                      ) : (
+                        <div className="space-y-1">
+                          <p className="font-black uppercase tracking-wide text-rose-950">Handshake Rejected</p>
+                          <p className="font-normal text-rose-800">{apiTestMessage}</p>
                         </div>
                       )}
                     </div>

@@ -31,7 +31,7 @@ async function startServer() {
 
   // API 2: Proxy transactional email dispatches with PDF attachments
   app.post('/api/send-email', async (req, res) => {
-    const { to, subject, body, engine, pdfBase64, invoiceNumber, smtpConfig, simulateFail, senderEmail } = req.body;
+    const { to, subject, body, engine, pdfBase64, invoiceNumber, smtpConfig, apiKeyConfig, simulateFail, senderEmail } = req.body;
 
     // Safety checks
     if (!to || !subject || !body || !engine) {
@@ -47,6 +47,114 @@ async function startServer() {
         success: false,
         error: 'Simulated Direct Send Failure: SMTP Connection timeout.',
       });
+    }
+
+    // Check if Outbound API Key is enabled and configured (bypassing standard SMTP)
+    if (apiKeyConfig && apiKeyConfig.isEnabled && apiKeyConfig.apiKey) {
+      const { provider, apiKey, senderEmail: apiSenderEmail, senderName: apiSenderName } = apiKeyConfig;
+      try {
+        console.log(`[API Key Dispatcher] Sending via ${provider}...`);
+        const htmlBody = body.replace(/\n/g, '<br>');
+        const resolvedSender = apiSenderEmail || senderEmail || 'onboarding@resend.dev';
+        const resolvedName = apiSenderName || 'RemitFlow Advice Dispatcher';
+
+        if (provider === 'Resend') {
+          const resendPayload: any = {
+            from: `"${resolvedName}" <${resolvedSender}>`,
+            to: [to],
+            subject: subject,
+            html: htmlBody,
+          };
+
+          if (pdfBase64) {
+            resendPayload.attachments = [
+              {
+                filename: `${invoiceNumber || 'Remittance_Advice'}.pdf`,
+                content: pdfBase64,
+              }
+            ];
+          }
+
+          const response = await fetch('https://api.resend.com/emails', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${apiKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(resendPayload),
+          });
+
+          const resText = await response.text();
+          let resData: any = {};
+          try {
+            resData = JSON.parse(resText);
+          } catch (e) {}
+
+          if (!response.ok) {
+            throw new Error(resData.message || `Resend Error (HTTP ${response.status}): ${resText}`);
+          }
+
+          return res.json({
+            success: true,
+            message: `[Resend API Delivered] Remittance advice successfully delivered to ${to} (MessageID: ${resData.id}).`,
+          });
+        } else if (provider === 'SendGrid') {
+          const sendgridPayload: any = {
+            personalizations: [{ to: [{ email: to }] }],
+            from: { email: resolvedSender, name: resolvedName },
+            subject: subject,
+            content: [{ type: 'text/html', value: htmlBody }],
+          };
+
+          if (pdfBase64) {
+            sendgridPayload.attachments = [
+              {
+                content: pdfBase64,
+                filename: `${invoiceNumber || 'Remittance_Advice'}.pdf`,
+                type: 'application/pdf',
+                disposition: 'attachment',
+              }
+            ];
+          }
+
+          const response = await fetch('https://api.sendgrid.com/v3/mail/send', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${apiKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(sendgridPayload),
+          });
+
+          if (!response.ok) {
+            const resText = await response.text();
+            let resData: any = {};
+            try {
+              resData = JSON.parse(resText);
+            } catch (e) {}
+            const errMsg = resData.errors?.[0]?.message || `SendGrid Error (HTTP ${response.status}): ${resText}`;
+            throw new Error(errMsg);
+          }
+
+          return res.json({
+            success: true,
+            message: `[SendGrid API Delivered] Remittance advice successfully delivered to ${to}.`,
+          });
+        } else {
+          // Sandbox/Mock Bypass
+          await new Promise(resolve => setTimeout(resolve, 600));
+          return res.json({
+            success: true,
+            message: `[Sandbox API Bypass] Mock transaction delivered successfully to ${to} using local API Key authorization.`,
+          });
+        }
+      } catch (err: any) {
+        console.error(`[API Key Dispatcher Error - ${provider}]`, err);
+        return res.status(502).json({
+          success: false,
+          error: `API Key Outbound failed (${provider}): ${err.message || err}. Please double check your API key, verified sender domains, or billing status.`,
+        });
+      }
     }
 
     // Resolve which SMTP configuration to use (explicit body params OR env fallbacks)
@@ -170,6 +278,95 @@ async function startServer() {
       return res.status(502).json({
         success: false,
         error: `Authentication failed: ${err.message || err}. Please verify port, host, and verify if an Application Password is required instead of your standard password.`,
+      });
+    }
+  });
+
+  // API 4: Verify and test connection to email service provider API Key
+  app.post('/api/test-api-key', async (req, res) => {
+    const { provider, apiKey, senderEmail, senderName } = req.body;
+
+    if (!provider || !apiKey) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing parameters. Provider and API Key are required for verification.',
+      });
+    }
+
+    try {
+      if (provider === 'Resend') {
+        const testSender = senderEmail || 'onboarding@resend.dev';
+        const response = await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            from: `"${senderName || 'RemitFlow Handshake'}" <${testSender}>`,
+            to: [testSender],
+            subject: 'SMTP Bypass API Key Verification Handshake',
+            html: '<p>Your API Key has been successfully verified for RemitFlow automated billing dispatches!</p>',
+          }),
+        });
+
+        const resText = await response.text();
+        let resData: any = {};
+        try {
+          resData = JSON.parse(resText);
+        } catch (e) {}
+
+        if (!response.ok) {
+          throw new Error(resData.message || `Resend validation error (HTTP ${response.status}): ${resText}`);
+        }
+
+        return res.json({
+          success: true,
+          message: `Successfully authenticated with Resend API! Verification email dispatched to ${testSender}.`,
+        });
+      } else if (provider === 'SendGrid') {
+        const testSender = senderEmail || 'verified-sender@yourdomain.com';
+        const response = await fetch('https://api.sendgrid.com/v3/mail/send', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            personalizations: [{ to: [{ email: testSender }] }],
+            from: { email: testSender, name: senderName || 'RemitFlow Handshake' },
+            subject: 'SMTP Bypass API Key Verification Handshake',
+            content: [{ type: 'text/html', value: '<p>Your API Key has been successfully verified for RemitFlow automated billing dispatches!</p>' }],
+          }),
+        });
+
+        if (!response.ok) {
+          const resText = await response.text();
+          let resData: any = {};
+          try {
+            resData = JSON.parse(resText);
+          } catch (e) {}
+          const errMsg = resData.errors?.[0]?.message || `SendGrid validation error (HTTP ${response.status}): ${resText}`;
+          throw new Error(errMsg);
+        }
+
+        return res.json({
+          success: true,
+          message: `Successfully authenticated with SendGrid API! Verification email dispatched to ${testSender}.`,
+        });
+      } else {
+        // Sandbox/Mock Bypass
+        await new Promise((resolve) => setTimeout(resolve, 800));
+        return res.json({
+          success: true,
+          message: `Local Sandbox/Mock Bypass key verified successfully! Uninterrupted batch sending is unlocked.`,
+        });
+      }
+    } catch (err: any) {
+      console.error('[API Key Verification Error]', err);
+      return res.status(502).json({
+        success: false,
+        error: `API Key Verification failed: ${err.message || err}. Please ensure your API Key is valid and authorized.`,
       });
     }
   });

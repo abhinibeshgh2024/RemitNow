@@ -45,4 +45,11 @@ export const DEFAULT_ENGINE_CONFIG: DeliveryEngineConfig = {
     senderName: 'RemitFlow Advice Dispatcher',
     isEnabled: false,
   },
+  apiKeyConfig: {
+    provider: 'Resend',
+    apiKey: '',
+    senderEmail: '',
+    senderName: 'RemitFlow Advice Dispatcher',
+    isEnabled: false,
+  },
 };
